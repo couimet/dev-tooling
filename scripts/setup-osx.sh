@@ -71,6 +71,22 @@ check_app() {
     fi
 }
 
+# Function to determine if running on Apple Silicon
+is_arm64() {
+    [[ $(uname -m) == 'arm64' ]]
+}
+
+# Function to show manual download instructions
+show_manual_download_instructions() {
+    local app_name=$1
+    local download_url=$2
+    echo "${BOLD}${BLUE}Note:${RESET} Please download and install ${app_name} manually from:"
+    echo "${GREEN}${download_url}${RESET}"
+    echo "This is required to get the native ARM64 version for your Apple Silicon Mac."
+    echo "Press Enter once you have completed the installation to continue..."
+    read
+}
+
 # Function to prompt user for IDE selection
 select_ides() {
     echo "${BOLD}${BLUE}IDE Selection${RESET}"
@@ -244,7 +260,11 @@ fi
 if [ "$install_cursor" = true ]; then
     print_check_message "Cursor"
     if ! check_app "Cursor"; then
-        brew install --cask cursor
+        if is_arm64; then
+            show_manual_download_instructions "Cursor" "https://www.cursor.com/"
+        else
+            brew install --cask cursor
+        fi
     fi
 fi
 
