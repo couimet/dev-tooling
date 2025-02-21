@@ -71,6 +71,27 @@ check_app() {
     fi
 }
 
+# Function to prompt user for IDE selection
+select_ides() {
+    echo "${BOLD}${BLUE}IDE Selection${RESET}"
+    echo "Which IDE(s) would you like to install?"
+    echo "1) VS Code"
+    echo "2) Cursor"
+    echo "3) Both"
+    echo "4) Skip IDE installation"
+    echo -n "Enter your choice (1-4): "
+    
+    read ide_choice
+    
+    case $ide_choice in
+        1) install_vscode=true; install_cursor=false ;;
+        2) install_vscode=false; install_cursor=true ;;
+        3) install_vscode=true; install_cursor=true ;;
+        4) install_vscode=false; install_cursor=false ;;
+        *) echo "Invalid choice. Installing VS Code by default."; install_vscode=true; install_cursor=false ;;
+    esac
+}
+
 # Homebrew
 print_check_message "Homebrew"
 if ! check_command brew; then
@@ -208,12 +229,23 @@ if ! check_command node || [[ $(node --version | grep ${NODE_VERSION}) != *${NOD
     nvm alias default node
 fi
 
+# IDE Selection
+select_ides
+
 # VSCode
-print_check_message "VS Code"
-if ! check_app "Visual Studio Code" "VS Code"; then
-    brew tap homebrew/cask && brew install --cask visual-studio-code
-    # Create the command line symlink
-    sudo ln -s '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code' /usr/local/bin/code
+if [ "$install_vscode" = true ]; then
+    print_check_message "VS Code"
+    if ! check_app "Visual Studio Code" "VS Code"; then
+        brew install --cask visual-studio-code
+    fi
+fi
+
+# Cursor
+if [ "$install_cursor" = true ]; then
+    print_check_message "Cursor"
+    if ! check_app "Cursor"; then
+        brew install --cask cursor
+    fi
 fi
 
 # Docker
