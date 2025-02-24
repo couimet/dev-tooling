@@ -108,6 +108,27 @@ select_ides() {
     esac
 }
 
+# Function to prompt user for password manager selection
+select_password_managers() {
+    echo "${BOLD}${BLUE}Password Manager Selection${RESET}"
+    echo "Which password manager(s) would you like to install?"
+    echo "1) MacPass"
+    echo "2) 1Password"
+    echo "3) Both"
+    echo "4) Skip password manager installation"
+    echo -n "Enter your choice (1-4): "
+    
+    read pm_choice
+    
+    case $pm_choice in
+        1) install_macpass=true; install_1password=false ;;
+        2) install_macpass=false; install_1password=true ;;
+        3) install_macpass=true; install_1password=true ;;
+        4) install_macpass=false; install_1password=false ;;
+        *) echo "Invalid choice. Installing MacPass by default."; install_macpass=true; install_1password=false ;;
+    esac
+}
+
 # Homebrew
 print_check_message "Homebrew"
 if ! check_command brew; then
@@ -311,6 +332,25 @@ if ! check_command gh; then
     echo "${BOLD}${BLUE}Note:${RESET} After installation, run '${GREEN}gh auth login${RESET}' to authenticate with GitHub"
     echo "The CLI will request permissions including 'Full control of public keys' which is needed for SSH key management"
     echo "These permissions are safe and only affect your GitHub.com account, not your local system"
+fi
+
+# Password Manager Selection
+select_password_managers
+
+# MacPass
+if [ "$install_macpass" = true ]; then
+    print_check_message "MacPass"
+    if ! check_app "MacPass"; then
+        brew install --cask macpass
+    fi
+fi
+
+# 1Password
+if [ "$install_1password" = true ]; then
+    print_check_message "1Password"
+    if ! check_app "1Password"; then
+        brew install --cask 1password
+    fi
 fi
 
 echo "Done!"
