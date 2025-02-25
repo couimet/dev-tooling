@@ -12,7 +12,8 @@ RESET='\033[0m'
 # Function to print formatted tool check message
 print_check_message() {
     local tool_name=$1
-    echo "Checking if ${BOLD}${BLUE}${tool_name}${RESET} is installed..."
+    local display_text=${2:-"is installed"}  # Use second parameter if provided, otherwise default to "is installed"
+    echo "Checking if ${BOLD}${BLUE}${tool_name}${RESET} ${display_text}..."
 }
 
 # Utility function to check if a command exists
