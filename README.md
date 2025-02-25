@@ -19,3 +19,37 @@ If you want to run it as is -- without even downloading it -- you can do so by r
 ```
 
 ⚠️ **Security Note**: Always review scripts before running them directly from the internet. The command above downloads and executes code from GitHub. Make sure you trust the source and have reviewed the script's contents.
+
+## Frequently Used Applications
+
+Once you have Homebrew installed (or better yet, run the `setup-osx.sh` script), you can install the following applications by running the following commands.
+
+### Chrome
+
+```bash
+brew install --cask google-chrome
+```
+
+### Slack
+
+```bash
+brew install --cask slack
+```
+
+### SQL Tool
+
+```bash
+brew install --cask pgadmin4
+```
+
+or
+
+```bash
+brew install --cask dbeaver-community
+```
+
+### NoSQL Tool
+
+```bash
+brew install --cask studio-3t
+```
