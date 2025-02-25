@@ -130,6 +130,37 @@ select_password_managers() {
     esac
 }
 
+check_default_shell() {
+    if [[ $SHELL != */zsh ]]; then
+        echo "${BOLD}${BLUE}Note:${RESET} zsh is not your default shell"
+        echo "Changing default shell to zsh..."
+        chsh -s "$(which zsh)"
+        return 1
+    fi
+    return 0
+}
+
+check_oh_my_zsh() {
+    if [ ! -d "$HOME/.oh-my-zsh" ]; then
+        echo "Installing ${BOLD}oh-my-zsh${RESET}..."
+        return 1
+    else
+        echo "Yep, ${BOLD}${BLUE}oh-my-zsh${RESET} is installed"
+        # Try to get version from git
+        if [ -d "$HOME/.oh-my-zsh/.git" ]; then
+            commit=$(cd "$HOME/.oh-my-zsh" && git rev-parse --short HEAD 2>/dev/null)
+            branch=$(cd "$HOME/.oh-my-zsh" && git rev-parse --abbrev-ref HEAD 2>/dev/null)
+            echo "  → version: ${GREEN}${branch} (${commit})${RESET}"
+            # Also show zsh version since it's relevant
+            echo "  → zsh version: ${GREEN}${ZSH_VERSION}${RESET}"
+        else
+            echo "  → version: unknown"
+        fi
+        echo
+        return 0
+    fi
+}
+
 # Homebrew
 print_check_message "Homebrew"
 if ! check_command brew; then
@@ -358,6 +389,18 @@ if [ "$install_1password" = true ]; then
     if ! check_app "1Password"; then
         brew install --cask 1password
     fi
+fi
+
+# Check and set zsh as default shell
+print_check_message "zsh shell" "is the default shell"
+if ! check_default_shell; then
+    echo "Please restart your terminal after the script finishes for shell changes to take effect."
+fi
+
+# Install oh-my-zsh if not present
+print_check_message "oh-my-zsh"
+if ! check_oh_my_zsh; then
+    sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
 fi
 
 echo "Done!"
