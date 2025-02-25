@@ -15,7 +15,7 @@ The script is opinionated on the tools that are installed; they are focused on `
 If you want to run it as is -- without even downloading it -- you can do so by running the following command:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/couimet/dev-tooling/main/scripts/setup-osx.sh | zsh
+/bin/zsh -c "$(curl -fsSL https://raw.githubusercontent.com/couimet/dev-tooling/main/scripts/setup-osx.sh)"
 ```
 
 ⚠️ **Security Note**: Always review scripts before running them directly from the internet. The command above downloads and executes code from GitHub. Make sure you trust the source and have reviewed the script's contents.
