@@ -266,6 +266,12 @@ if ! check_command node || [[ $(node --version | grep ${NODE_VERSION}) != *${NOD
     nvm alias default node
 fi
 
+# iTerm2
+print_check_message "iTerm"
+if ! check_app "iTerm"; then
+    brew install --cask iterm2
+fi
+
 # IDE Selection
 select_ides
 
