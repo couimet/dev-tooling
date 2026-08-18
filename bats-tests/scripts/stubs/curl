@@ -1,0 +1,63 @@
+#!/bin/bash
+# curl stub. Serves canned responses keyed on the URL:
+#   - nvm latest-release JSON (tag v0.40.3)
+#   - a fake nvm installer that drops a working nvm.sh into $HOME/.nvm
+#   - a fake oh-my-zsh installer and a fake Homebrew installer
+#   - the real companion scripts from the project (unless
+#     CURL_SERVE_COMPANIONS=0, which makes every download fail)
+# The body goes to stdout, or to the -o target when one is given.
+echo "curl $*" >> "$STUB_CALLS"
+
+url=""
+out=""
+prev=""
+for a in "$@"; do
+  if [[ "$prev" == "-o" ]]; then
+    out="$a"
+    prev=""
+    continue
+  fi
+  case "$a" in
+    -*) prev="$a" ;;
+    *) url="$a"; prev="" ;;
+  esac
+done
+
+serve() {
+  if [[ -n "$out" && "$out" != "-" ]]; then
+    printf '%s\n' "$body" > "$out"
+  else
+    printf '%s\n' "$body"
+  fi
+}
+
+body=""
+case "$url" in
+  *api.github.com/repos/nvm-sh/nvm/releases/latest*)
+    body='{"tag_name": "v0.40.3"}'
+    serve ;;
+  *nvm-sh/nvm/*install.sh*)
+    body="$(cat <<'INSTALLER'
+mkdir -p "$HOME/.nvm"
+cat > "$HOME/.nvm/nvm.sh" <<'NVM'
+nvm() { echo "nvm $*"; }
+NVM
+touch "$HOME/.nvm/bash_completion"
+INSTALLER
+)"
+    serve ;;
+  *ohmyzsh*install.sh*)
+    body="echo 'oh-my-zsh installer ran' > '$HOME/.oh-my-zsh-installed'"
+    serve ;;
+  *raw.githubusercontent.com/Homebrew/install*)
+    body="echo 'homebrew installer ran' > '$HOME/.homebrew-installed'"
+    serve ;;
+  *raw.githubusercontent.com/couimet/dev-tooling/main/scripts/*)
+    if [[ "$CURL_SERVE_COMPANIONS" == "0" ]]; then
+      exit 22
+    fi
+    body="$(cat "$PROJECT_ROOT/scripts/${url##*/}")"
+    serve ;;
+  *)
+    exit 22 ;;
+esac

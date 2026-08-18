@@ -1,0 +1,4 @@
+#!/bin/bash
+# ssh-agent stub: emits a fake socket so `eval "$(ssh-agent -s)"` is a no-op.
+echo "ssh-agent $*" >> "$STUB_CALLS"
+echo "SSH_AUTH_SOCK=$HOME/.ssh-agent.sock; export SSH_AUTH_SOCK;"

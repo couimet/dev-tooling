@@ -1,0 +1,12 @@
+#!/bin/bash
+# ssh-add stub. With SSH_ADD_HAS_ED25519=1, `ssh-add -l` reports a loaded
+# ED25519 key; otherwise the listing fails so scripts load the key again.
+echo "ssh-add $*" >> "$STUB_CALLS"
+if [[ "$1" == "-l" ]]; then
+  if [[ "$SSH_ADD_HAS_ED25519" == "1" ]]; then
+    echo "256 SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA test@example.com (ED25519)"
+    exit 0
+  fi
+  exit 1
+fi
+exit 0

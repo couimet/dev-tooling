@@ -1,0 +1,201 @@
+#!/usr/bin/env bats
+
+load test_helper
+
+setup() {
+  setup_common
+  copy_scripts
+  make_ssh_key
+  GSSH="$TEST_SCRIPTS/setup-github-ssh.sh"
+}
+
+# --- CLI ------------------------------------------------------------------
+
+@test "--help prints usage and exits 0" {
+  run zsh "$GSSH" --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Usage: setup-github-ssh.sh"* ]]
+}
+
+@test "-h prints usage and exits 0" {
+  run zsh "$GSSH" -h
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Usage: setup-github-ssh.sh"* ]]
+}
+
+@test "unknown option exits 1" {
+  run zsh "$GSSH" --bogus
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Unknown option"* ]]
+}
+
+@test "--key without a value exits 1" {
+  run zsh "$GSSH" --key
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"--key requires a path argument"* ]]
+}
+
+@test "--key=PATH equals form is accepted" {
+  run zsh "$GSSH" "--key=$HOME/.ssh/id_ed25519"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Found an ED25519 key"* ]]
+}
+
+# --- key validation -------------------------------------------------------
+
+@test "missing key file exits 1" {
+  run zsh "$GSSH" --key "$HOME/.ssh/nope"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"No SSH key found"* ]]
+}
+
+@test "unreadable key exits 1" {
+  echo "not a key" > "$HOME/badkey"
+  run zsh "$GSSH" --key "$HOME/badkey"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Could not read the key"* ]]
+}
+
+@test "non-ED25519 key aborts on 'n'" {
+  ssh-keygen -t rsa -f "$HOME/.ssh/id_rsa" -N "" -C "test@example.com" -q
+  run zsh "$GSSH" --key "$HOME/.ssh/id_rsa" <<< "n"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"not ED25519"* ]]
+  [[ "$output" == *"Aborting"* ]]
+  [ ! -f "$HOME/.ssh/config" ]
+}
+
+@test "non-ED25519 key continues on 'y'" {
+  ssh-keygen -t rsa -f "$HOME/.ssh/id_rsa" -N "" -C "test@example.com" -q
+  run zsh "$GSSH" --key "$HOME/.ssh/id_rsa" <<< "y"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Continuing with the non-ED25519 key"* ]]
+  grep -q "Host github.com" "$HOME/.ssh/config"
+}
+
+# --- ssh config -----------------------------------------------------------
+
+@test "appends the github.com block when no config exists" {
+  run zsh "$GSSH" --key "$HOME/.ssh/id_ed25519"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Found an ED25519 key"* ]]
+  [[ "$output" == *"Appended a github.com block"* ]]
+  grep -q "Host github.com" "$HOME/.ssh/config"
+  grep -q "IdentityFile $HOME/.ssh/id_ed25519" "$HOME/.ssh/config"
+  [ "$(stat -f '%Lp' "$HOME/.ssh/config")" = "600" ]
+}
+
+@test "leaves an existing github.com block untouched" {
+  cat > "$HOME/.ssh/config" <<EOF
+Host github.com
+    AddKeysToAgent yes
+    UseKeychain yes
+    IdentityFile $HOME/.ssh/id_ed25519
+EOF
+  chmod 600 "$HOME/.ssh/config"
+  before="$(cat "$HOME/.ssh/config")"
+  run zsh "$GSSH" --key "$HOME/.ssh/id_ed25519"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"leaving it untouched"* ]]
+  [ "$(cat "$HOME/.ssh/config")" = "$before" ]
+}
+
+@test "warns about a commented-out github.com block" {
+  cat > "$HOME/.ssh/config" <<EOF
+#Host github.com
+#    IdentityFile $HOME/.ssh/id_ed25519
+EOF
+  chmod 600 "$HOME/.ssh/config"
+  run zsh "$GSSH" --key "$HOME/.ssh/id_ed25519" <<< ""
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"commented out"* ]]
+  [[ "$output" == *"Uncomment the github.com block"* ]]
+  grep -q "^#Host github.com" "$HOME/.ssh/config"
+}
+
+# --- commit signing -------------------------------------------------------
+
+@test "sets commit signing config when unset" {
+  run zsh "$GSSH" --key "$HOME/.ssh/id_ed25519"
+  [ "$status" -eq 0 ]
+  [ "$(git config --global --get gpg.format)" = "ssh" ]
+  [ "$(git config --global --get user.signingkey)" = "$HOME/.ssh/id_ed25519" ]
+  [ "$(git config --global --get commit.gpgsign)" = "true" ]
+  [[ "$output" == *"gpg.format = ssh"* ]]
+}
+
+@test "keeps existing commit signing config" {
+  git config --global gpg.format ssh
+  git config --global user.signingkey "$HOME/.ssh/id_ed25519"
+  git config --global commit.gpgsign true
+  run zsh "$GSSH" --key "$HOME/.ssh/id_ed25519"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"is already 'ssh'; leaving it"* ]]
+  [[ "$output" == *"Already present:"* ]]
+}
+
+# --- allowed_signers ------------------------------------------------------
+
+@test "registers the public key in allowed_signers" {
+  run zsh "$GSSH" --key "$HOME/.ssh/id_ed25519"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Registered the key"* ]]
+  grep -q "$(whoami)" "$HOME/.config/git/allowed_signers"
+  grep -qF "$(cat "$HOME/.ssh/id_ed25519.pub")" "$HOME/.config/git/allowed_signers"
+}
+
+@test "appends without clobbering other signers" {
+  mkdir -p "$HOME/.config/git"
+  echo "someone-else ssh-ed25519 AAAAfakeexistingkey" > "$HOME/.config/git/allowed_signers"
+  run zsh "$GSSH" --key "$HOME/.ssh/id_ed25519"
+  [ "$status" -eq 0 ]
+  grep -q "someone-else" "$HOME/.config/git/allowed_signers"
+  grep -qF "$(cat "$HOME/.ssh/id_ed25519.pub")" "$HOME/.config/git/allowed_signers"
+}
+
+@test "skips registration when the key is already a signer" {
+  mkdir -p "$HOME/.config/git"
+  echo "$(whoami) $(cat "$HOME/.ssh/id_ed25519.pub")" > "$HOME/.config/git/allowed_signers"
+  run zsh "$GSSH" --key "$HOME/.ssh/id_ed25519"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"already registered"* ]]
+}
+
+@test "missing public key exits 1" {
+  rm "$HOME/.ssh/id_ed25519.pub"
+  run zsh "$GSSH" --key "$HOME/.ssh/id_ed25519"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"No public key"* ]]
+}
+
+# --- idempotency ----------------------------------------------------------
+
+@test "second run changes nothing and reports everything as present" {
+  run zsh "$GSSH" --key "$HOME/.ssh/id_ed25519"
+  [ "$status" -eq 0 ]
+  config_before="$(cat "$HOME/.ssh/config")"
+  signers_before="$(cat "$HOME/.config/git/allowed_signers")"
+
+  run zsh "$GSSH" --key "$HOME/.ssh/id_ed25519"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"Appended a github.com block"* ]]
+  [[ "$output" != *"Registered the key"* ]]
+  [ "$(cat "$HOME/.ssh/config")" = "$config_before" ]
+  [ "$(cat "$HOME/.config/git/allowed_signers")" = "$signers_before" ]
+}
+
+# --- logging --------------------------------------------------------------
+
+@test "writes its own timestamped log when forced interactive" {
+  export FORCE_INTERACTIVE=1
+  run zsh "$GSSH" --key "$HOME/.ssh/id_ed25519"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Run log:"* ]]
+  [[ -n "$(find . -maxdepth 1 -name 'setup-github-ssh-*.log' | head -1)" ]]
+}
+
+@test "creates no log when piped" {
+  run zsh "$GSSH" --key "$HOME/.ssh/id_ed25519"
+  [ "$status" -eq 0 ]
+  [ -z "$(find . -maxdepth 1 -name 'setup-github-ssh-*.log' | head -1)" ]
+}

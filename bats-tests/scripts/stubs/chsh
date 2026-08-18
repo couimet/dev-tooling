@@ -1,0 +1,4 @@
+#!/bin/bash
+# chsh stub: records the call and succeeds.
+echo "chsh $*" >> "$STUB_CALLS"
+exit 0
