@@ -195,6 +195,10 @@ APPS_PATHS=("iTerm" "Visual Studio Code" "Cursor" "Postman" "Rectangle" "Google 
 
 @test "Git installed via brew is reported present with its version and a shadow warning" {
   baseline_env
+  # Resolve git strictly to the system binary so the shadow follow-up
+  # triggers deterministically, even on machines with Homebrew's git
+  # earlier in the PATH.
+  export PATH="$TEST_BIN:/usr/bin:/bin:/usr/sbin:/sbin"
   run zsh "$OSX" --ide skip --password-manager skip
   [ "$status" -eq 0 ]
   [[ "$output" == *"Git 2.55.0 (Homebrew)"* ]]

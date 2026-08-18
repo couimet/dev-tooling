@@ -14,6 +14,9 @@ setup_common() {
   export HOME="$TEST_HOME"
   export APPS_DIR="$TEST_APPS"
   export PATH="$TEST_BIN:$PATH"
+  # Pin the default shell so the "already zsh" branch is deterministic;
+  # the change-branch test overrides it with env SHELL=/bin/bash.
+  export SHELL=/bin/zsh
   export STUB_CALLS="$BATS_TEST_TMPDIR/stub-calls.log"
   : > "$STUB_CALLS"
 
