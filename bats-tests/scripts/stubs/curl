@@ -34,6 +34,11 @@ serve() {
 body=""
 case "$url" in
   *api.github.com/repos/nvm-sh/nvm/releases/latest*)
+    # CURL_NVM_LATEST_FAIL=1 simulates an unreachable API so the script's
+    # LATEST_NVM_VERSION comes out empty.
+    if [[ "$CURL_NVM_LATEST_FAIL" == "1" ]]; then
+      exit 22
+    fi
     body='{"tag_name": "v0.40.3"}'
     serve ;;
   *nvm-sh/nvm/*install.sh*)
@@ -56,7 +61,10 @@ INSTALLER
     if [[ "$CURL_SERVE_COMPANIONS" == "0" ]]; then
       exit 22
     fi
-    body="$(cat "$PROJECT_ROOT/scripts/${url##*/}")"
+    if ! body="$(cat "$PROJECT_ROOT/scripts/${url##*/}")"; then
+      echo "curl stub: cannot read companion script ${url##*/}" >&2
+      exit 22
+    fi
     serve ;;
   *)
     exit 22 ;;

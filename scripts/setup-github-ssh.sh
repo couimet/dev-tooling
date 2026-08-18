@@ -106,10 +106,10 @@ fi
 SSH_CONFIG="$HOME/.ssh/config"
 mkdir -p "$HOME/.ssh"
 
-if [[ -f "$SSH_CONFIG" ]] && grep -qiE '^[[:space:]]*Host[[:space:]]+github\.com([[:space:]]|$)' "$SSH_CONFIG"; then
+if [[ -f "$SSH_CONFIG" ]] && grep -qiE '^[[:space:]]*Host[[:space:]]+(.*[[:space:]])?github\.com([[:space:]]|$)' "$SSH_CONFIG"; then
     report "info" "A github.com block already exists in ${SSH_CONFIG}; leaving it untouched."
     note_present "github.com block in ~/.ssh/config"
-elif [[ -f "$SSH_CONFIG" ]] && grep -qiE '^[[:space:]]*#.*Host[[:space:]]+github\.com([[:space:]]|$)' "$SSH_CONFIG"; then
+elif [[ -f "$SSH_CONFIG" ]] && grep -qiE '^[[:space:]]*#.*Host[[:space:]]+(.*[[:space:]])?github\.com([[:space:]]|$)' "$SSH_CONFIG"; then
     report "warning" "A github.com block exists in ${SSH_CONFIG} but is commented out."
     note_followup "Uncomment the github.com block in ~/.ssh/config"
     press_enter "Please uncomment it now, then press Enter to continue."
@@ -146,15 +146,39 @@ set_git_config_if_unset() {
 }
 
 set_git_config_if_unset "gpg.format" "ssh"
-set_git_config_if_unset "user.signingkey" "${KEY_PATH}"
-set_git_config_if_unset "commit.gpgsign" "true"
+
+gpg_format="$(git config --global --get gpg.format)"
+if [[ -n "$gpg_format" && "$gpg_format" != "ssh" ]]; then
+    report "warning" "gpg.format is '${gpg_format}', not 'ssh'; skipping the SSH signing settings (user.signingkey, commit.gpgsign)."
+    note_followup "Enable SSH signing by switching gpg.format, e.g. 'git config --global gpg.format ssh', then re-run this script."
+else
+    set_git_config_if_unset "user.signingkey" "${KEY_PATH}"
+    set_git_config_if_unset "commit.gpgsign" "true"
+fi
 
 # --- allowed_signers -----------------------------------------------------
-# The file is only appended to, so signers registered by other tools or
-# machines are preserved.
+# The signer's principal is the global git user.email, since that is the
+# identity git will match when verifying signatures; without one we ask
+# interactively. The file is only appended to, so signers registered by
+# other tools or machines are preserved.
 
-ALLOWED_SIGNERS="$HOME/.config/git/allowed_signers"
-mkdir -p "$HOME/.config/git"
+principal="$(git config --global --get user.email)"
+if [[ -z "$principal" ]]; then
+    report "info" "No git user.email is configured; enter the email to register as the signer principal:"
+    read principal
+    if [[ -z "$principal" ]]; then
+        report "error" "No email provided; cannot register a signer without a principal."
+        exit 1
+    fi
+fi
+
+ALLOWED_SIGNERS="$(git config --global --get gpg.ssh.allowedSignersFile)"
+if [[ -z "$ALLOWED_SIGNERS" ]]; then
+    ALLOWED_SIGNERS="$HOME/.config/git/allowed_signers"
+    set_git_config_if_unset "gpg.ssh.allowedSignersFile" "$ALLOWED_SIGNERS"
+fi
+
+mkdir -p "$(dirname "$ALLOWED_SIGNERS")"
 touch "$ALLOWED_SIGNERS"
 
 if [[ ! -f "$KEY_PATH.pub" ]]; then
@@ -163,7 +187,7 @@ if [[ ! -f "$KEY_PATH.pub" ]]; then
 fi
 
 pubkey="$(cat "$KEY_PATH.pub")"
-signer_line="$(whoami) ${pubkey}"
+signer_line="${principal} ${pubkey}"
 
 if grep -qF "$pubkey" "$ALLOWED_SIGNERS"; then
     report "info" "The public key is already registered in ${ALLOWED_SIGNERS}."

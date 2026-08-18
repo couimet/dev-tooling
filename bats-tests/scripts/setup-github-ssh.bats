@@ -6,6 +6,10 @@ setup() {
   setup_common
   copy_scripts
   make_ssh_key
+  # Baseline git identity; the script derives the allowed_signers principal
+  # from user.email, so tests that don't exercise the prompt path need it.
+  git config --global user.name "Test User"
+  git config --global user.email "test@example.com"
   GSSH="$TEST_SCRIPTS/setup-github-ssh.sh"
 }
 
@@ -100,6 +104,36 @@ EOF
   [ "$(cat "$HOME/.ssh/config")" = "$before" ]
 }
 
+@test "leaves a github.com block untouched when github.com is not the first Host token" {
+  cat > "$HOME/.ssh/config" <<EOF
+Host personal.github.com github.com
+    AddKeysToAgent yes
+    UseKeychain yes
+    IdentityFile $HOME/.ssh/id_ed25519
+EOF
+  chmod 600 "$HOME/.ssh/config"
+  before="$(cat "$HOME/.ssh/config")"
+  run zsh "$GSSH" --key "$HOME/.ssh/id_ed25519"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"leaving it untouched"* ]]
+  [[ "$output" != *"Appended a github.com block"* ]]
+  [ "$(cat "$HOME/.ssh/config")" = "$before" ]
+}
+
+@test "appends a github.com block when a Host line has no github.com token" {
+  cat > "$HOME/.ssh/config" <<EOF
+Host personal.github.com
+    IdentityFile $HOME/.ssh/id_ed25519
+Host github.comx
+    IdentityFile $HOME/.ssh/id_ed25519
+EOF
+  chmod 600 "$HOME/.ssh/config"
+  run zsh "$GSSH" --key "$HOME/.ssh/id_ed25519"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Appended a github.com block"* ]]
+  grep -q "^Host github.com$" "$HOME/.ssh/config"
+}
+
 @test "warns about a commented-out github.com block" {
   cat > "$HOME/.ssh/config" <<EOF
 #Host github.com
@@ -134,13 +168,24 @@ EOF
   [[ "$output" == *"Already present:"* ]]
 }
 
+@test "skips SSH signing settings when gpg.format is not ssh" {
+  git config --global gpg.format openpgp
+  run zsh "$GSSH" --key "$HOME/.ssh/id_ed25519"
+  [ "$status" -eq 0 ]
+  [ "$(git config --global --get gpg.format)" = "openpgp" ]
+  [ -z "$(git config --global --get user.signingkey)" ]
+  [ -z "$(git config --global --get commit.gpgsign)" ]
+  [[ "$output" == *"gpg.format is 'openpgp'"* ]]
+  [[ "$output" == *"skipping the SSH signing settings"* ]]
+}
+
 # --- allowed_signers ------------------------------------------------------
 
 @test "registers the public key in allowed_signers" {
   run zsh "$GSSH" --key "$HOME/.ssh/id_ed25519"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Registered the key"* ]]
-  grep -q "$(whoami)" "$HOME/.config/git/allowed_signers"
+  grep -q "test@example.com" "$HOME/.config/git/allowed_signers"
   grep -qF "$(cat "$HOME/.ssh/id_ed25519.pub")" "$HOME/.config/git/allowed_signers"
 }
 
@@ -150,12 +195,13 @@ EOF
   run zsh "$GSSH" --key "$HOME/.ssh/id_ed25519"
   [ "$status" -eq 0 ]
   grep -q "someone-else" "$HOME/.config/git/allowed_signers"
+  grep -q "test@example.com" "$HOME/.config/git/allowed_signers"
   grep -qF "$(cat "$HOME/.ssh/id_ed25519.pub")" "$HOME/.config/git/allowed_signers"
 }
 
 @test "skips registration when the key is already a signer" {
   mkdir -p "$HOME/.config/git"
-  echo "$(whoami) $(cat "$HOME/.ssh/id_ed25519.pub")" > "$HOME/.config/git/allowed_signers"
+  echo "test@example.com $(cat "$HOME/.ssh/id_ed25519.pub")" > "$HOME/.config/git/allowed_signers"
   run zsh "$GSSH" --key "$HOME/.ssh/id_ed25519"
   [ "$status" -eq 0 ]
   [[ "$output" == *"already registered"* ]]
@@ -166,6 +212,50 @@ EOF
   run zsh "$GSSH" --key "$HOME/.ssh/id_ed25519"
   [ "$status" -eq 1 ]
   [[ "$output" == *"No public key"* ]]
+}
+
+@test "uses a custom gpg.ssh.allowedSignersFile when configured" {
+  custom="$HOME/.custom/signers"
+  git config --global gpg.ssh.allowedSignersFile "$custom"
+  run zsh "$GSSH" --key "$HOME/.ssh/id_ed25519"
+  [ "$status" -eq 0 ]
+  grep -q "test@example.com" "$custom"
+  grep -qF "$(cat "$HOME/.ssh/id_ed25519.pub")" "$custom"
+  [ "$(git config --global --get gpg.ssh.allowedSignersFile)" = "$custom" ]
+  [ ! -f "$HOME/.config/git/allowed_signers" ]
+}
+
+@test "prompts for an email principal when git user.email is unset" {
+  git config --global --unset user.email
+  run zsh "$GSSH" --key "$HOME/.ssh/id_ed25519" <<< "signer@example.com"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"enter the email to register as the signer principal"* ]]
+  grep -q "signer@example.com" "$HOME/.config/git/allowed_signers"
+  grep -qF "$(cat "$HOME/.ssh/id_ed25519.pub")" "$HOME/.config/git/allowed_signers"
+}
+
+@test "exits 1 when no email principal can be determined" {
+  git config --global --unset user.email
+  run zsh "$GSSH" --key "$HOME/.ssh/id_ed25519" <<< ""
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"No email provided"* ]]
+  [ ! -f "$HOME/.config/git/allowed_signers" ]
+}
+
+@test "SSH-signed commit verifies after the script runs" {
+  run zsh "$GSSH" --key "$HOME/.ssh/id_ed25519"
+  [ "$status" -eq 0 ]
+
+  mkdir -p "$HOME/repo"
+  git -C "$HOME/repo" init -q
+  git -C "$HOME/repo" config user.name "Test User"
+  git -C "$HOME/repo" config user.email "test@example.com"
+
+  run git -C "$HOME/repo" commit --allow-empty -S -m test
+  [ "$status" -eq 0 ]
+  run git -C "$HOME/repo" verify-commit HEAD
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Good \"git\" signature"* ]]
 }
 
 # --- idempotency ----------------------------------------------------------

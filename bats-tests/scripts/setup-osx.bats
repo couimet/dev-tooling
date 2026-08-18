@@ -172,6 +172,24 @@ APPS_PATHS=("iTerm" "Visual Studio Code" "Cursor" "Postman" "Rectangle" "Google 
   [[ "$output" == *"could not download the shared helpers"* ]]
 }
 
+@test "piped stdin run does not source a local utils.sh" {
+  baseline_env
+  # A decoy utils.sh in the invocation directory must not be picked up
+  # when the script is read from stdin: SCRIPT_DIR stays empty and the
+  # helpers are fetched into $TMPDIR instead.
+  local decoy="$BATS_TEST_TMPDIR/decoy"
+  mkdir -p "$decoy" "$BATS_TEST_TMPDIR/tmp"
+  cat > "$decoy/utils.sh" <<EOF
+touch "$decoy/marker"
+EOF
+  cd "$decoy"
+  # -s reads the script from stdin; "--" keeps the flags from being
+  # parsed as zsh options.
+  run env TMPDIR="$BATS_TEST_TMPDIR/tmp" zsh -s -- --ide skip --password-manager skip < "$OSX"
+  [ "$status" -eq 0 ]
+  [ ! -f "$decoy/marker" ]
+}
+
 # --- Homebrew -------------------------------------------------------------
 
 @test "Homebrew is reported as present with its version" {
@@ -273,6 +291,24 @@ APPS_PATHS=("iTerm" "Visual Studio Code" "Cursor" "Postman" "Rectangle" "Google 
   [[ "$clean" == *"✔ GitHub SSH key"* ]]
 }
 
+@test "missing setup-github-ssh.sh is reported and skipped, not fatal" {
+  git config --global user.name "Test User"
+  git config --global user.email "test@example.com"
+  export BREW_HAS_GIT=1
+  mkdir -p "$HOME/.nvm"
+  touch "$HOME/.nvm/nvm.sh"
+  rm "$TEST_SCRIPTS/setup-github-ssh.sh"
+  run zsh "$OSX" --ide skip --password-manager skip <<< ""
+  [ "$status" -eq 0 ]
+  [ -f "$HOME/.ssh/id_ed25519" ]
+  [[ "$output" == *"setup-github-ssh.sh not found"* ]]
+  [[ "$output" == *"Run scripts/setup-github-ssh.sh --key="* ]]
+  [[ "$output" != *"GitHub security"* ]]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" == *"✔ GitHub SSH key (id_ed25519)"* ]]
+  [[ "$clean" != *"and SSH configuration"* ]]
+}
+
 @test "existing key with a loaded agent shows the standalone command hint" {
   baseline_env
   run zsh "$OSX" --ide skip --password-manager skip
@@ -288,7 +324,14 @@ APPS_PATHS=("iTerm" "Visual Studio Code" "Cursor" "Postman" "Rectangle" "Google 
   unset SSH_ADD_HAS_ED25519
   run zsh "$OSX" --ide skip --password-manager skip
   [ "$status" -eq 0 ]
-  grep -q "ssh-add" "$STUB_CALLS"
+  grep -q "ssh-add $HOME/.ssh/id_ed25519" "$STUB_CALLS"
+}
+
+@test "existing key already in the agent is not added again" {
+  baseline_env
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  ! grep -q "ssh-add $HOME/.ssh/id_ed25519" "$STUB_CALLS"
 }
 
 # --- nvm and Node ---------------------------------------------------------
@@ -310,6 +353,18 @@ APPS_PATHS=("iTerm" "Visual Studio Code" "Cursor" "Postman" "Rectangle" "Google 
   [ -f "$HOME/.nvm/nvm.sh" ]
 }
 
+@test "skips the nvm install when the latest release tag cannot be resolved" {
+  baseline_env
+  rm -rf "$HOME/.nvm"
+  export CURL_NVM_LATEST_FAIL=1
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Could not resolve the latest nvm release tag"* ]]
+  [[ "$output" == *"https://github.com/nvm-sh/nvm#installing-and-updating"* ]]
+  [[ "$output" != *"nvm v"* ]]
+  [[ "$output" != *"has been installed"* ]]
+}
+
 @test "Node.js on the pinned major is reported present" {
   baseline_env
   run zsh "$OSX" --ide skip --password-manager skip
@@ -320,6 +375,17 @@ APPS_PATHS=("iTerm" "Visual Studio Code" "Cursor" "Postman" "Rectangle" "Google 
 @test "Node.js on another major triggers nvm install" {
   baseline_env
   export NODE_VERSION_OUTPUT="v22.0.0"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"nvm install 24"* ]]
+  [[ "$output" == *"via nvm"* ]]
+}
+
+@test "Node.js on a different major with a matching substring is reinstalled" {
+  baseline_env
+  # v22.24.1 contains "24" as a substring, so a naive grep-based major
+  # check would wrongly treat it as the pinned major 24.
+  export NODE_VERSION_OUTPUT="v22.24.1"
   run zsh "$OSX" --ide skip --password-manager skip
   [ "$status" -eq 0 ]
   [[ "$output" == *"nvm install 24"* ]]

@@ -12,18 +12,22 @@
 
 # Resolve the directory holding the shared helpers. When this script runs
 # from a checkout, utils.sh sits right next to it. The README quick
-# install pipes the script straight from GitHub, in which case there is
-# nothing local to source from; the helpers are then fetched into a
+# install pipes the script straight from GitHub, in which case
+# ${(%):-%x} is not a real file ("zsh") and dirname would resolve to the
+# current directory; that directory must not be used, or a local utils.sh
+# could be picked up by accident. The helpers are then fetched into a
 # scratch directory under $TMPDIR so the script stays self-sufficient.
-SCRIPT_DIR="$(cd "$(dirname "${(%):-%x}")" 2>/dev/null && pwd)"
+SCRIPT_DIR=""
+if [[ -f "${(%):-%x}" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "${(%):-%x}")" 2>/dev/null && pwd)"
+fi
 
 if [[ ! -f "$SCRIPT_DIR/utils.sh" ]]; then
     SCRIPT_DIR="${TMPDIR:-/tmp}/dev-tooling-scripts"
     mkdir -p "$SCRIPT_DIR"
     for helper in utils.sh setup-github-ssh.sh; do
-        if [[ ! -f "$SCRIPT_DIR/$helper" ]]; then
-            curl -fsSL "https://raw.githubusercontent.com/couimet/dev-tooling/main/scripts/$helper" -o "$SCRIPT_DIR/$helper"
-        fi
+        # Always re-download so a stale cached copy is never reused.
+        curl -fsSL "https://raw.githubusercontent.com/couimet/dev-tooling/main/scripts/$helper" -o "$SCRIPT_DIR/$helper"
     done
     if [[ ! -f "$SCRIPT_DIR/utils.sh" ]]; then
         echo "ERROR: could not download the shared helpers; aborting." >&2
@@ -361,7 +365,7 @@ if [[ -z "$(git config --global user.name)" ]] || [[ -z "$(git config --global u
     exit 1
 fi
 report "success" "Git identity is configured."
-GIT_EMAIL="$(git config --get user.email)"
+GIT_EMAIL="$(git config --global --get user.email)"
 note_present "Git identity (user.name / user.email)"
 
 # --- GitHub SSH setup ------------------------------------------------------
@@ -386,14 +390,28 @@ if [[ ! -f "$SSH_KEY" ]]; then
     press_enter "Press Enter once you have added the key to GitHub..."
 
     # Apply the GitHub SSH configuration (config block, commit signing,
-    # allowed signers) via the standalone script. Its output is captured
-    # so it can be shown right away and repeated in the final summary.
-    SECURE_OUTPUT="$("$SCRIPT_DIR/setup-github-ssh.sh" --key="$SSH_KEY" 2>&1)"
-    echo
-    echo "$SECURE_OUTPUT"
-    echo
-    note_added "GitHub SSH key (id_ed25519) and SSH configuration"
-    note_followup "Verify GitHub access: ssh -T git@github.com"
+    # allowed signers) via the standalone script, when it is present.
+    # Its output is captured so it can be shown right away and repeated
+    # in the final summary. A missing or failing helper is not fatal:
+    # the key is already in place, so the run just ends with a follow-up.
+    if [[ ! -x "$SCRIPT_DIR/setup-github-ssh.sh" ]]; then
+        report "error" "setup-github-ssh.sh not found; the GitHub SSH configuration was skipped."
+        note_added "GitHub SSH key (id_ed25519)"
+        note_followup "Run scripts/setup-github-ssh.sh --key=$SSH_KEY to finish the GitHub SSH configuration"
+    elif SECURE_OUTPUT="$("$SCRIPT_DIR/setup-github-ssh.sh" --key="$SSH_KEY" 2>&1)"; then
+        echo
+        echo "$SECURE_OUTPUT"
+        echo
+        note_added "GitHub SSH key (id_ed25519) and SSH configuration"
+        note_followup "Verify GitHub access: ssh -T git@github.com"
+    else
+        echo
+        echo "$SECURE_OUTPUT"
+        echo
+        report "error" "The GitHub SSH setup script failed; the SSH configuration was not applied."
+        note_added "GitHub SSH key (id_ed25519)"
+        note_followup "Re-run scripts/setup-github-ssh.sh --key=$SSH_KEY once the error is fixed"
+    fi
 else
     # Key exists: just make sure the agent has it loaded, and leave the
     # SSH configuration hint for the final summary.
@@ -420,22 +438,30 @@ if [[ -d "$HOME/.nvm" ]]; then
     note_present "nvm ${version:-unknown}"
 else
     report "info" "nvm not found; installing the latest release..."
-    # The latest release tag comes from the GitHub API.
+    # The latest release tag comes from the GitHub API. Validate it
+    # before building the installer URL from it, so a failed or empty
+    # API response skips the install instead of curling a garbage URL.
     LATEST_NVM_VERSION="$(curl -s https://api.github.com/repos/nvm-sh/nvm/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')"
-    report "info" "Installing nvm ${LATEST_NVM_VERSION}..."
-    curl -o- "https://raw.githubusercontent.com/nvm-sh/nvm/${LATEST_NVM_VERSION}/install.sh" | bash
-    export NVM_DIR="$HOME/.nvm"
-    [[ -s "$NVM_DIR/nvm.sh" ]] && source "$NVM_DIR/nvm.sh"
-    [[ -s "$NVM_DIR/bash_completion" ]] && source "$NVM_DIR/bash_completion"
-    report "success" "nvm ${LATEST_NVM_VERSION} has been installed"
-    note_added "nvm ${LATEST_NVM_VERSION:-unknown}"
+    if [[ -z "$LATEST_NVM_VERSION" ]] || [[ ! "$LATEST_NVM_VERSION" =~ ^v[0-9]+(\.[0-9]+)*$ ]]; then
+        report "error" "Could not resolve the latest nvm release tag; skipping the nvm install."
+        note_followup "Install nvm manually: https://github.com/nvm-sh/nvm#installing-and-updating"
+    else
+        report "info" "Installing nvm ${LATEST_NVM_VERSION}..."
+        curl -o- "https://raw.githubusercontent.com/nvm-sh/nvm/${LATEST_NVM_VERSION}/install.sh" | bash
+        export NVM_DIR="$HOME/.nvm"
+        [[ -s "$NVM_DIR/nvm.sh" ]] && source "$NVM_DIR/nvm.sh"
+        [[ -s "$NVM_DIR/bash_completion" ]] && source "$NVM_DIR/bash_completion"
+        report "success" "nvm ${LATEST_NVM_VERSION} has been installed"
+        note_added "nvm ${LATEST_NVM_VERSION}"
+    fi
 fi
 
 # The script pins the latest Major version of Node.js.
 export NODE_VERSION=24
 
 print_check_message "Node.js"
-if ! check_command node || [[ "$(node --version 2>/dev/null | grep "$NODE_VERSION")" != *"$NODE_VERSION"* ]]; then
+node_major="$(node --version 2>/dev/null | sed -E 's/^v([0-9]+).*/\1/')"
+if ! check_command node || [[ "$node_major" != "$NODE_VERSION" ]]; then
     nvm install "$NODE_VERSION"
     nvm use "$NODE_VERSION"
     nvm alias default node
