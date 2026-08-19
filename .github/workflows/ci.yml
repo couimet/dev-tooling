@@ -17,6 +17,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+      # zsh is not installed on ubuntu-latest runners, so the syntax check
+      # lives here on the macOS job, which always has zsh.
+      - name: Check zsh syntax
+        run: zsh -n scripts/*.sh
       - uses: couimet/github-actions/bats-test@main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -41,5 +45,3 @@ jobs:
         with:
           paths: bats-tests/scripts/stubs
           extensions: ''
-      - name: Check zsh syntax
-        run: zsh -n scripts/*.sh
