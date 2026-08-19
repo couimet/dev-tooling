@@ -14,6 +14,9 @@ baseline_env() {
   git config --global user.email "test@example.com"
   make_ssh_key
   export SSH_ADD_HAS_ED25519=1 BREW_HAS_GIT=1
+  # Where the script looks for brew after a fresh install; the stub bin
+  # makes the shellenv pickup deterministic in every environment.
+  export BREW_BIN_DIR="$TEST_BIN"
   mkdir -p "$HOME/.nvm"
   cat > "$HOME/.nvm/nvm.sh" <<'EOF'
 nvm() { echo "nvm $*"; }
@@ -239,6 +242,21 @@ EOF
   [[ "$clean" == *"✔ Homebrew"* ]]
 }
 
+@test "reports when Homebrew is installed but its shellenv cannot be initialized" {
+  baseline_env
+  # Point the test hook at a bin with no brew in it, so the fallback
+  # prefixes are never probed and the failure path is exercised even on
+  # machines with a real Homebrew install.
+  mkdir -p "$BATS_TEST_TMPDIR/empty-bin"
+  export BREW_BIN_DIR="$BATS_TEST_TMPDIR/empty-bin" FORCE_COMMAND_MISSING="brew"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [ -f "$HOME/.homebrew-installed" ]
+  [[ "$output" == *"shell environment could not be initialized"* ]]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" != *"✔ Homebrew"* ]]
+}
+
 # --- Git ------------------------------------------------------------------
 
 @test "Git installed via brew is reported present with its version and a shadow warning" {
@@ -441,6 +459,34 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" == *"nvm install 24"* ]]
   [[ "$output" == *"via nvm"* ]]
+}
+
+@test "reports when nvm cannot install or activate Node.js" {
+  baseline_env
+  export FORCE_COMMAND_MISSING="node"
+  # The script sources the nvm function from nvm.sh, so make every
+  # install/use/alias call fail after the command -v nvm gate.
+  cat > "$HOME/.nvm/nvm.sh" <<'EOF'
+nvm() { echo "nvm failed" && return 1; }
+EOF
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"could not install or activate"* ]]
+  [[ "$output" != *"via nvm"* ]]
+}
+
+@test "reports when nvm is not available before the Node.js install" {
+  baseline_env
+  # With the nvm release lookup failing, the install branch never
+  # sources a nvm function, so the Node.js block hits the missing-nvm
+  # error instead of running install/use/alias.
+  rm -rf "$HOME/.nvm"
+  export FORCE_COMMAND_MISSING="node" CURL_NVM_LATEST_FAIL=1
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"nvm is not available in this shell"* ]]
+  [[ "$output" == *"Install nvm first: https://github.com/nvm-sh/nvm#installing-and-updating"* ]]
+  [[ "$output" != *"via nvm"* ]]
 }
 
 # --- pnpm warning ---------------------------------------------------------

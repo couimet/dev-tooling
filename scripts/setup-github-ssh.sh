@@ -84,6 +84,11 @@ if [[ ! -f "$KEY_PATH" ]]; then
     exit 1
 fi
 
+if [[ ! -f "$KEY_PATH.pub" ]]; then
+    report "error" "No public key found at ${KEY_PATH}.pub."
+    exit 1
+fi
+
 key_info="$(ssh-keygen -l -f "$KEY_PATH" 2>&1)" || {
     report "error" "Could not read the key at ${KEY_PATH}."
     exit 1
@@ -191,11 +196,6 @@ fi
 
 mkdir -p "$(dirname "$ALLOWED_SIGNERS")"
 touch "$ALLOWED_SIGNERS"
-
-if [[ ! -f "$KEY_PATH.pub" ]]; then
-    report "error" "No public key at ${KEY_PATH}.pub; cannot register a signer."
-    exit 1
-fi
 
 pubkey="$(cat "$KEY_PATH.pub")"
 signer_line="${principal} ${pubkey}"

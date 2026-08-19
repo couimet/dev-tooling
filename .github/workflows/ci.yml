@@ -20,7 +20,10 @@ jobs:
       # zsh is not installed on ubuntu-latest runners, so the syntax check
       # lives here on the macOS job, which always has zsh.
       - name: Check zsh syntax
-        run: zsh -n scripts/*.sh
+        run: |
+          for script in scripts/*.sh; do
+            zsh -n "$script"
+          done
       - uses: couimet/github-actions/bats-test@main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}

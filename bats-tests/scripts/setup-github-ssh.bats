@@ -55,6 +55,7 @@ setup() {
 
 @test "unreadable key exits 1" {
   echo "not a key" > "$HOME/badkey"
+  echo "not a public key" > "$HOME/badkey.pub"
   run zsh "$GSSH" --key "$HOME/badkey"
   [ "$status" -eq 1 ]
   [[ "$output" == *"Could not read the key"* ]]
@@ -212,6 +213,16 @@ EOF
   run zsh "$GSSH" --key "$HOME/.ssh/id_ed25519"
   [ "$status" -eq 1 ]
   [[ "$output" == *"No public key"* ]]
+}
+
+@test "missing public key exits before changing git config" {
+  rm "$HOME/.ssh/id_ed25519.pub"
+  gitconfig_before="$(cat "$HOME/.gitconfig")"
+  run zsh "$GSSH" --key "$HOME/.ssh/id_ed25519"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"No public key"* ]]
+  [ ! -f "$HOME/.ssh/config" ]
+  [ "$(cat "$HOME/.gitconfig")" = "$gitconfig_before" ]
 }
 
 @test "uses a custom gpg.ssh.allowedSignersFile when configured" {

@@ -332,7 +332,28 @@ check_oh_my_zsh() {
 print_check_message "Homebrew"
 if ! check_command brew; then
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-    note_added "Homebrew ($(cmd_version brew))"
+    # A fresh install leaves the current shell without brew in PATH, so
+    # pick up its shellenv from the architecture's install prefix before
+    # any later brew call. Tests point BREW_BIN_DIR at the stub bin.
+    brew_bin=""
+    if [[ -n "${BREW_BIN_DIR:-}" ]]; then
+        # Test hook: when set, it is authoritative and has no fallback,
+        # so failure paths are exercisable on machines with real brew.
+        [[ -x "$BREW_BIN_DIR/brew" ]] && brew_bin="$BREW_BIN_DIR"
+    else
+        for candidate in /opt/homebrew/bin /usr/local/bin; do
+            [[ -x "$candidate/brew" ]] && brew_bin="$candidate" && break
+        done
+    fi
+    if [[ -n "$brew_bin" ]]; then
+        eval "$("$brew_bin/brew" shellenv)"
+    fi
+    if [[ -n "$brew_bin" ]] && command -v brew &>/dev/null; then
+        note_added "Homebrew ($(cmd_version brew))"
+    else
+        report "error" "Homebrew was installed but its shell environment could not be initialized."
+        note_followup "Open a new terminal and re-run this script so brew is on PATH"
+    fi
 else
     note_present "Homebrew (${CHECKED_VERSION})"
 fi
@@ -488,10 +509,17 @@ export NODE_VERSION=24
 print_check_message "Node.js"
 node_major="$(node --version 2>/dev/null | sed -E 's/^v([0-9]+).*/\1/')"
 if ! check_command node || [[ "$node_major" != "$NODE_VERSION" ]]; then
-    nvm install "$NODE_VERSION"
-    nvm use "$NODE_VERSION"
-    nvm alias default node
-    note_added "Node.js $(cmd_version node) (via nvm)"
+    # nvm must be usable as a shell function before install/use/alias;
+    # the nvm branches above source it after a successful install.
+    if ! command -v nvm &>/dev/null; then
+        report "error" "nvm is not available in this shell; skipping the Node.js install."
+        note_followup "Install nvm first: https://github.com/nvm-sh/nvm#installing-and-updating"
+    elif nvm install "$NODE_VERSION" && nvm use "$NODE_VERSION" && nvm alias default node; then
+        note_added "Node.js $(cmd_version node) (via nvm)"
+    else
+        report "error" "nvm could not install or activate Node.js ${NODE_VERSION}."
+        note_followup "Install Node.js manually: https://nodejs.org/en/download"
+    fi
 else
     note_present "Node.js ${CHECKED_VERSION}"
 fi
