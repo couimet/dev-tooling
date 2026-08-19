@@ -1,4 +1,5 @@
 #!/bin/zsh
+# shellcheck shell=bash  # linted as bash; zsh-only lines carry their own disables
 
 # Bootstrap script for a macOS development environment.
 # Installs the day-to-day tooling for Node.js and API work: Homebrew,
@@ -18,7 +19,9 @@
 # could be picked up by accident. The helpers are then fetched into a
 # scratch directory under $TMPDIR so the script stays self-sufficient.
 SCRIPT_DIR=""
+# shellcheck disable=SC2296  # zsh-specific script path expansion
 if [[ -f "${(%):-%x}" ]]; then
+    # shellcheck disable=SC2296  # zsh-specific script path expansion
     SCRIPT_DIR="$(cd "$(dirname "${(%):-%x}")" 2>/dev/null && pwd)"
 fi
 
@@ -35,6 +38,7 @@ if [[ ! -f "$SCRIPT_DIR/utils.sh" ]]; then
     fi
 fi
 
+# shellcheck disable=SC1091  # helper lives next to the script
 source "$SCRIPT_DIR/utils.sh"
 
 # The GitHub SSH script may have arrived without the executable bit,
@@ -238,7 +242,7 @@ select_ides() {
     echo "4) Skip IDE installation"
     echo -n "Enter your choice (1-4): "
 
-    read ide_choice
+    read -r ide_choice
 
     case $ide_choice in
         1) install_vscode=true; install_cursor=false ;;
@@ -260,7 +264,7 @@ select_password_managers() {
     echo "4) Skip password manager installation"
     echo -n "Enter your choice (1-4): "
 
-    read pm_choice
+    read -r pm_choice
 
     case $pm_choice in
         1) install_macpass=true; install_1password=false ;;
@@ -430,6 +434,7 @@ fi
 print_check_message "nvm"
 if [[ -d "$HOME/.nvm" ]]; then
     export NVM_DIR="$HOME/.nvm"
+    # shellcheck disable=SC1091  # nvm.sh is sourced from the nvm install dir
     [[ -s "$NVM_DIR/nvm.sh" ]] && source "$NVM_DIR/nvm.sh"
     version="$(nvm --version 2>/dev/null)"
     report "success" "nvm is installed"
@@ -449,8 +454,10 @@ else
         report "info" "Installing nvm ${LATEST_NVM_VERSION}..."
         curl -o- "https://raw.githubusercontent.com/nvm-sh/nvm/${LATEST_NVM_VERSION}/install.sh" | bash
         export NVM_DIR="$HOME/.nvm"
-        [[ -s "$NVM_DIR/nvm.sh" ]] && source "$NVM_DIR/nvm.sh"
-        [[ -s "$NVM_DIR/bash_completion" ]] && source "$NVM_DIR/bash_completion"
+        # shellcheck disable=SC1091  # nvm.sh is sourced from the nvm install dir
+    [[ -s "$NVM_DIR/nvm.sh" ]] && source "$NVM_DIR/nvm.sh"
+        # shellcheck disable=SC1091  # completion is sourced from the nvm install dir
+    [[ -s "$NVM_DIR/bash_completion" ]] && source "$NVM_DIR/bash_completion"
         report "success" "nvm ${LATEST_NVM_VERSION} has been installed"
         note_added "nvm ${LATEST_NVM_VERSION}"
     fi

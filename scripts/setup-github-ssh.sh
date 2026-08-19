@@ -1,4 +1,5 @@
 #!/bin/zsh
+# shellcheck shell=bash  # linted as bash; zsh-only lines carry their own disables
 
 # setup-github-ssh.sh
 #
@@ -11,7 +12,9 @@
 # untouched, so a second run changes nothing and only confirms what is
 # already in place.
 
+# shellcheck disable=SC2296  # zsh-specific script path expansion
 SCRIPT_DIR="$(cd "$(dirname "${(%):-%x}")" && pwd)"
+# shellcheck disable=SC1091  # helper lives next to the script
 source "$SCRIPT_DIR/utils.sh"
 
 KEY_PATH="$HOME/.ssh/id_ed25519"
@@ -92,7 +95,7 @@ else
     report "warning" "The key at ${KEY_PATH} is not ED25519: ${key_info}"
     report "warning" "GitHub access and SSH commit signing generally work best with an ED25519 key."
     report "info" "Continue anyway? (y/n)"
-    read answer
+    read -r answer
     if [[ "${answer:l}" =~ ^(y|yes)$ ]]; then
         report "warning" "Continuing with the non-ED25519 key."
     else
@@ -165,7 +168,7 @@ fi
 principal="$(git config --global --get user.email)"
 if [[ -z "$principal" ]]; then
     report "info" "No git user.email is configured; enter the email to register as the signer principal:"
-    read principal
+    read -r principal
     if [[ -z "$principal" ]]; then
         report "error" "No email provided; cannot register a signer without a principal."
         exit 1

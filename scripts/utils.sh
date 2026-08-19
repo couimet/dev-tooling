@@ -1,4 +1,5 @@
 #!/bin/zsh
+# shellcheck shell=bash  # linted as bash; zsh-only lines carry their own disables
 
 # Shared helpers sourced by the setup-* scripts in this repo.
 # Not meant to be executed on its own.
@@ -35,7 +36,7 @@ report() {
 press_enter() {
     local message="${1:-Press Enter to continue...}"
     report "info" "$message"
-    read
+    read -r
 }
 
 # ensure_fresh <path-in-repo> <display-name>
@@ -45,6 +46,7 @@ ensure_fresh() {
     local script_path="$1"
     local display_name="$2"
     local repo_root
+    # shellcheck disable=SC2296  # zsh-specific script path expansion
     repo_root="$(cd "$(dirname "${(%):-%x}")/.." && pwd)" || return 0
 
     report "info" "Checking if ${display_name} is up-to-date with the remote..."
@@ -63,7 +65,7 @@ ensure_fresh() {
     report "warning" "${display_name} has updates on the remote."
     report "info" "Abort to pull the latest version, or continue with this copy? (abort/continue)"
     local answer
-    read answer
+    read -r answer
     if [[ "$answer" =~ ^(abort|a|n|no)$ ]]; then
         report "info" "Aborting. Run 'git pull origin main' in ${repo_root} and try again."
         exit 1
