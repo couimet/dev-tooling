@@ -2,6 +2,7 @@
 # curl stub. Serves canned responses keyed on the URL:
 #   - nvm latest-release JSON (tag v0.40.3)
 #   - a fake nvm installer that drops a working nvm.sh into $HOME/.nvm
+#     (fails with exit 22 when CURL_NVM_INSTALL_FAIL=1)
 #   - a fake oh-my-zsh installer and a fake Homebrew installer
 #   - the real companion scripts from the project (unless
 #     CURL_SERVE_COMPANIONS=0, which makes every download fail)
@@ -42,6 +43,11 @@ case "$url" in
     body='{"tag_name": "v0.40.3"}'
     serve ;;
   *nvm-sh/nvm/*install.sh*)
+    # CURL_NVM_INSTALL_FAIL=1 simulates a failed installer download so
+    # the script's bash invocation is never reached.
+    if [[ "$CURL_NVM_INSTALL_FAIL" == "1" ]]; then
+      exit 22
+    fi
     body="$(cat <<'INSTALLER'
 mkdir -p "$HOME/.nvm"
 cat > "$HOME/.nvm/nvm.sh" <<'NVM'

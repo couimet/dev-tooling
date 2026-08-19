@@ -172,6 +172,20 @@ APPS_PATHS=("iTerm" "Visual Studio Code" "Cursor" "Postman" "Rectangle" "Google 
   [[ "$output" == *"could not download the shared helpers"* ]]
 }
 
+@test "aborts without reusing a stale cached helper when the refresh fails" {
+  baseline_env
+  mkdir -p "$BATS_TEST_TMPDIR/standalone" "$BATS_TEST_TMPDIR/tmp/dev-tooling-scripts"
+  cp "$TEST_SCRIPTS/setup-osx.sh" "$BATS_TEST_TMPDIR/standalone/"
+  cat > "$BATS_TEST_TMPDIR/tmp/dev-tooling-scripts/utils.sh" <<EOF
+touch "$BATS_TEST_TMPDIR/marker"
+EOF
+  export CURL_SERVE_COMPANIONS=0
+  run env TMPDIR="$BATS_TEST_TMPDIR/tmp" zsh "$BATS_TEST_TMPDIR/standalone/setup-osx.sh" --ide skip --password-manager skip
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"could not download the shared helpers"* ]]
+  [ ! -f "$BATS_TEST_TMPDIR/marker" ]
+}
+
 @test "piped stdin run does not source a local utils.sh" {
   baseline_env
   # A decoy utils.sh in the invocation directory must not be picked up
@@ -188,6 +202,22 @@ EOF
   run env TMPDIR="$BATS_TEST_TMPDIR/tmp" zsh -s -- --ide skip --password-manager skip < "$OSX"
   [ "$status" -eq 0 ]
   [ ! -f "$decoy/marker" ]
+}
+
+@test "standalone run executes the downloaded SSH setup" {
+  git config --global user.name "Test User"
+  git config --global user.email "test@example.com"
+  export BREW_HAS_GIT=1
+  mkdir -p "$HOME/.nvm"
+  touch "$HOME/.nvm/nvm.sh"
+  mkdir -p "$BATS_TEST_TMPDIR/standalone" "$BATS_TEST_TMPDIR/tmp"
+  cp "$TEST_SCRIPTS/setup-osx.sh" "$BATS_TEST_TMPDIR/standalone/"
+  run env TMPDIR="$BATS_TEST_TMPDIR/tmp" zsh "$BATS_TEST_TMPDIR/standalone/setup-osx.sh" --ide skip --password-manager skip <<< ""
+  [ "$status" -eq 0 ]
+  [ -f "$HOME/.ssh/id_ed25519" ]
+  [[ "$output" == *"GitHub security"* ]]
+  grep -q "Host github.com" "$HOME/.ssh/config"
+  grep -qF "$(cat "$HOME/.ssh/id_ed25519.pub")" "$HOME/.config/git/allowed_signers"
 }
 
 # --- Homebrew -------------------------------------------------------------
@@ -363,6 +393,18 @@ EOF
   [[ "$output" == *"https://github.com/nvm-sh/nvm#installing-and-updating"* ]]
   [[ "$output" != *"nvm v"* ]]
   [[ "$output" != *"has been installed"* ]]
+}
+
+@test "skips the nvm install when the installer download fails" {
+  baseline_env
+  rm -rf "$HOME/.nvm"
+  export CURL_NVM_INSTALL_FAIL=1
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Could not download the nvm installer"* ]]
+  [[ "$output" == *"https://github.com/nvm-sh/nvm#installing-and-updating"* ]]
+  [[ "$output" != *"has been installed"* ]]
+  [ ! -f "$HOME/.nvm/nvm.sh" ]
 }
 
 @test "Node.js on the pinned major is reported present" {

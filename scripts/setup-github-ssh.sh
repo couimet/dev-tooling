@@ -181,6 +181,14 @@ if [[ -z "$ALLOWED_SIGNERS" ]]; then
     set_git_config_if_unset "gpg.ssh.allowedSignersFile" "$ALLOWED_SIGNERS"
 fi
 
+# git expands a leading ~/ in path-typed config values, but the raw
+# value read above keeps it literal; normalize it so the file is created
+# where git will actually look for it.
+# shellcheck disable=SC2088  # the leading ~ is a literal match, not an expansion
+if [[ "$ALLOWED_SIGNERS" == "~/"* ]]; then
+    ALLOWED_SIGNERS="$HOME/${ALLOWED_SIGNERS#\~/}"
+fi
+
 mkdir -p "$(dirname "$ALLOWED_SIGNERS")"
 touch "$ALLOWED_SIGNERS"
 
@@ -194,11 +202,11 @@ signer_line="${principal} ${pubkey}"
 
 if grep -qF "$pubkey" "$ALLOWED_SIGNERS"; then
     report "info" "The public key is already registered in ${ALLOWED_SIGNERS}."
-    note_present "Public key registered in ~/.config/git/allowed_signers"
+    note_present "Public key registered in ${ALLOWED_SIGNERS}"
 else
     echo "$signer_line" >> "$ALLOWED_SIGNERS"
     report "success" "Registered the key in ${ALLOWED_SIGNERS}."
-    note_added "Public key registered in ~/.config/git/allowed_signers"
+    note_added "Public key registered in ${ALLOWED_SIGNERS}"
 fi
 
 # --- Wrap up -------------------------------------------------------------

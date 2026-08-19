@@ -225,6 +225,17 @@ EOF
   [ ! -f "$HOME/.config/git/allowed_signers" ]
 }
 
+@test "expands a leading tilde in gpg.ssh.allowedSignersFile" {
+  local workdir="$BATS_TEST_TMPDIR/workdir"
+  mkdir -p "$workdir"
+  git config --global gpg.ssh.allowedSignersFile "~/.custom/signers"
+  cd "$workdir"
+  run zsh "$GSSH" --key "$HOME/.ssh/id_ed25519"
+  [ "$status" -eq 0 ]
+  grep -qF "$(cat "$HOME/.ssh/id_ed25519.pub")" "$HOME/.custom/signers"
+  [ ! -e "$workdir/~" ]
+}
+
 @test "prompts for an email principal when git user.email is unset" {
   git config --global --unset user.email
   run zsh "$GSSH" --key "$HOME/.ssh/id_ed25519" <<< "signer@example.com"

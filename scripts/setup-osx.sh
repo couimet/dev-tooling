@@ -29,13 +29,18 @@ if [[ ! -f "$SCRIPT_DIR/utils.sh" ]]; then
     SCRIPT_DIR="${TMPDIR:-/tmp}/dev-tooling-scripts"
     mkdir -p "$SCRIPT_DIR"
     for helper in utils.sh setup-github-ssh.sh; do
-        # Always re-download so a stale cached copy is never reused.
-        curl -fsSL "https://raw.githubusercontent.com/couimet/dev-tooling/main/scripts/$helper" -o "$SCRIPT_DIR/$helper"
+        # Download to a temporary file first so a failed refresh never
+        # leaves a half-written helper in place, and abort on any
+        # transfer error instead of silently reusing a stale copy.
+        if ! curl -fsSL "https://raw.githubusercontent.com/couimet/dev-tooling/main/scripts/$helper" -o "$SCRIPT_DIR/$helper.tmp"; then
+            echo "ERROR: could not download the shared helpers; aborting." >&2
+            exit 1
+        fi
     done
-    if [[ ! -f "$SCRIPT_DIR/utils.sh" ]]; then
-        echo "ERROR: could not download the shared helpers; aborting." >&2
-        exit 1
-    fi
+    # Every download succeeded; replace the cached helpers now.
+    for helper in utils.sh setup-github-ssh.sh; do
+        mv "$SCRIPT_DIR/$helper.tmp" "$SCRIPT_DIR/$helper"
+    done
 fi
 
 # shellcheck disable=SC1091  # helper lives next to the script
@@ -452,14 +457,28 @@ else
         note_followup "Install nvm manually: https://github.com/nvm-sh/nvm#installing-and-updating"
     else
         report "info" "Installing nvm ${LATEST_NVM_VERSION}..."
-        curl -o- "https://raw.githubusercontent.com/nvm-sh/nvm/${LATEST_NVM_VERSION}/install.sh" | bash
-        export NVM_DIR="$HOME/.nvm"
-        # shellcheck disable=SC1091  # nvm.sh is sourced from the nvm install dir
-    [[ -s "$NVM_DIR/nvm.sh" ]] && source "$NVM_DIR/nvm.sh"
-        # shellcheck disable=SC1091  # completion is sourced from the nvm install dir
-    [[ -s "$NVM_DIR/bash_completion" ]] && source "$NVM_DIR/bash_completion"
-        report "success" "nvm ${LATEST_NVM_VERSION} has been installed"
-        note_added "nvm ${LATEST_NVM_VERSION}"
+        # Download the installer to a temp file first so the download result
+        # is known before any shell code runs; the install is only recorded
+        # when the installer exits cleanly.
+        NVM_INSTALLER="${TMPDIR:-/tmp}/nvm-install.sh"
+        if curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/${LATEST_NVM_VERSION}/install.sh" -o "$NVM_INSTALLER"; then
+            if bash "$NVM_INSTALLER"; then
+                export NVM_DIR="$HOME/.nvm"
+                # shellcheck disable=SC1091  # nvm.sh is sourced from the nvm install dir
+                [[ -s "$NVM_DIR/nvm.sh" ]] && source "$NVM_DIR/nvm.sh"
+                # shellcheck disable=SC1091  # completion is sourced from the nvm install dir
+                [[ -s "$NVM_DIR/bash_completion" ]] && source "$NVM_DIR/bash_completion"
+                report "success" "nvm ${LATEST_NVM_VERSION} has been installed"
+                note_added "nvm ${LATEST_NVM_VERSION}"
+            else
+                report "error" "The nvm installer failed; nvm was not installed."
+                note_followup "Install nvm manually: https://github.com/nvm-sh/nvm#installing-and-updating"
+            fi
+        else
+            report "error" "Could not download the nvm installer; skipping the nvm install."
+            note_followup "Install nvm manually: https://github.com/nvm-sh/nvm#installing-and-updating"
+        fi
+        rm -f "$NVM_INSTALLER"
     fi
 fi
 
