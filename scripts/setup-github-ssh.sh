@@ -198,9 +198,13 @@ mkdir -p "$(dirname "$ALLOWED_SIGNERS")"
 touch "$ALLOWED_SIGNERS"
 
 pubkey="$(cat "$KEY_PATH.pub")"
+# The trailing comment is cosmetic; an equivalent key registered with a
+# different comment must not produce a duplicate signer entry, so only
+# the key type and body are compared.
+key_body="$(awk '{print $1" "$2}' "$KEY_PATH.pub")"
 signer_line="${principal} ${pubkey}"
 
-if grep -qF "$pubkey" "$ALLOWED_SIGNERS"; then
+if grep -qF "$key_body" "$ALLOWED_SIGNERS"; then
     report "info" "The public key is already registered in ${ALLOWED_SIGNERS}."
     note_present "Public key registered in ${ALLOWED_SIGNERS}"
 else

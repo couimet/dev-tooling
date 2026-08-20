@@ -56,6 +56,20 @@ setup() {
   [[ "$output" != *"is up-to-date."* ]]
 }
 
+@test "ensure_fresh skips when the repo does not track the script" {
+  # A utils.sh sourced from outside the real checkout resolves repo_root
+  # to a directory without scripts/setup-osx.sh (the piped-run case);
+  # the check must stop there instead of fetching an unrelated remote.
+  mkdir -p "$BATS_TEST_TMPDIR/elsewhere"
+  cp "$SCRIPT_DIR/utils.sh" "$BATS_TEST_TMPDIR/elsewhere/"
+  export GIT_STUB_INSIDE_WORK_TREE=1
+  run zsh -c "source '$BATS_TEST_TMPDIR/elsewhere/utils.sh'; ensure_fresh scripts/setup-osx.sh setup-osx.sh; echo done"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"done"* ]]
+  [[ "$output" != *"setup-osx.sh is up-to-date."* ]]
+  [[ "$output" != *"has updates on the remote"* ]]
+}
+
 @test "ensure_fresh warns and continues when the fetch fails" {
   export GIT_STUB_INSIDE_WORK_TREE=1 GIT_STUB_FETCH_FAIL=1
   run zsh -c "source '$SCRIPT_DIR/utils.sh'; ensure_fresh scripts/setup-osx.sh setup-osx.sh; echo done"
@@ -97,6 +111,14 @@ setup() {
   logfile="$(find . -maxdepth 1 -name 'setup-osx-*.log' | head -1)"
   [ -n "$logfile" ]
   [[ "$logfile" =~ setup-osx-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{2}\.log ]]
+
+  # The tee/sed writers can still be flushing after zsh exits; wait for
+  # the last line before asserting the contents.
+  local waited=0
+  while ! grep -q "plain" "$logfile" && (( waited < 50 )); do
+    sleep 0.1
+    waited=$((waited + 1))
+  done
 
   grep -q "SUCCESS colored" "$logfile"
   grep -q "plain" "$logfile"

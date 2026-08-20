@@ -9,6 +9,15 @@
 # whole run is mirrored to a timestamped log file in the directory the
 # script is invoked from (see the shared start_run_log helper).
 
+# --- Configuration ----------------------------------------------------------
+
+# Major version of Node.js to install and keep current through nvm.
+NODE_MAJOR_VERSION=24
+
+# Base URL the script refreshes its shared helpers from when it runs
+# from a raw pipe instead of a checkout; point it at a fork to test.
+HELPERS_BASE_URL="https://raw.githubusercontent.com/couimet/dev-tooling/main/scripts"
+
 # --- Shared helpers --------------------------------------------------------
 
 # Resolve the directory holding the shared helpers. When this script runs
@@ -32,7 +41,7 @@ if [[ ! -f "$SCRIPT_DIR/utils.sh" ]]; then
         # Download to a temporary file first so a failed refresh never
         # leaves a half-written helper in place, and abort on any
         # transfer error instead of silently reusing a stale copy.
-        if ! curl -fsSL "https://raw.githubusercontent.com/couimet/dev-tooling/main/scripts/$helper" -o "$SCRIPT_DIR/$helper.tmp"; then
+        if ! curl -fsSL "$HELPERS_BASE_URL/$helper" -o "$SCRIPT_DIR/$helper.tmp"; then
             echo "ERROR: could not download the shared helpers; aborting." >&2
             exit 1
         fi
@@ -222,6 +231,50 @@ cmd_version() {
     [[ -n "$version" ]] && echo "$version" || echo "unknown"
 }
 
+# Runs brew install and lets the caller record success only afterwards;
+# on failure it reports the error and leaves a manual follow-up so the
+# run summary never records an install that did not happen.
+brew_install() {
+    if brew install "$@"; then
+        return 0
+    fi
+    report "error" "brew install $* failed."
+    note_followup "Install it manually: brew install $*"
+    return 1
+}
+
+# Checks for a Homebrew cask app and installs it when missing, recording
+# the outcome in the run summary. The app name is the /Applications
+# bundle used for the check and the version probe; the display name is
+# what the summary shows; the cask is the Homebrew package.
+install_app() {
+    local app="$1" display="$2" cask="$3"
+    print_check_message "$display"
+    if ! check_app "$app" "$display"; then
+        if brew_install --cask "$cask"; then
+            note_added "$display $(app_version "$app")"
+        fi
+    else
+        note_present "$display ${CHECKED_VERSION}"
+    fi
+}
+
+# Same as install_app for brew formulae that expose a command. The
+# display name and formula default to the command name, so a plain
+# "install_cmd jq" covers the common case.
+install_cmd() {
+    local command="$1"
+    local display="${2:-$command}" formula="${3:-$command}"
+    print_check_message "$display"
+    if ! check_command "$command"; then
+        if brew_install "$formula"; then
+            note_added "$display $(cmd_version "$command")"
+        fi
+    else
+        note_present "$display ${CHECKED_VERSION}"
+    fi
+}
+
 # Branch and commit of the local oh-my-zsh install; "unknown" when absent.
 omz_version() {
     local branch commit
@@ -301,13 +354,17 @@ apply_password_manager_flag() {
     esac
 }
 
-# Returns 1 when the default shell had to be changed, so the caller can
-# warn about a restart.
+# Returns 0 when zsh is already the default shell, 1 when chsh changed
+# it, and 2 when chsh failed, so the caller can report each outcome
+# differently instead of claiming success on a failed change.
 check_default_shell() {
     if [[ $SHELL != */zsh ]]; then
         report "info" "zsh is not the default shell; switching with chsh..."
-        chsh -s "$(which zsh)"
-        return 1
+        if chsh -s "$(which zsh)"; then
+            return 1
+        fi
+        report "error" "chsh failed; the default shell was not changed."
+        return 2
     fi
     report "success" "zsh is already the default shell."
     return 0
@@ -362,14 +419,16 @@ fi
 
 print_check_message "Git"
 if ! check_command git; then
-    brew install git
-    note_added "Git $(brew list --versions git | awk '{print $NF}') (Homebrew)"
+    if brew_install git; then
+        note_added "Git $(brew list --versions git | awk '{print $NF}') (Homebrew)"
+    fi
 elif ! brew list --versions git &>/dev/null; then
     # macOS ships git at /usr/bin/git; prefer the Homebrew build so the
     # machine gets the latest version.
     report "warning" "System Git detected; installing the Homebrew version..."
-    brew install git
-    note_added "Git $(brew list --versions git | awk '{print $NF}') (Homebrew)"
+    if brew_install git; then
+        note_added "Git $(brew list --versions git | awk '{print $NF}') (Homebrew)"
+    fi
 else
     note_present "Git $(brew list --versions git | awk '{print $NF}') (Homebrew)"
     report "info" "  → Homebrew version: ${GREEN}$(brew list --versions git)${RESET}"
@@ -443,10 +502,13 @@ if [[ ! -f "$SSH_KEY" ]]; then
         note_followup "Re-run scripts/setup-github-ssh.sh --key=$SSH_KEY once the error is fixed"
     fi
 else
-    # Key exists: just make sure the agent has it loaded, and leave the
-    # SSH configuration hint for the final summary.
+    # Key exists: just make sure the agent has this specific key loaded,
+    # and leave the SSH configuration hint for the final summary.
     report "success" "SSH key already exists at ~/.ssh/id_ed25519"
-    if ! ssh-add -l 2>/dev/null | grep -q "ED25519"; then
+    # Any other ed25519 key already loaded by the agent must not count;
+    # compare this key's fingerprint against the agent's listing.
+    key_fingerprint="$(ssh-keygen -lf "$SSH_KEY.pub" 2>/dev/null | awk '{print $2}')"
+    if [[ -z "$key_fingerprint" ]] || ! ssh-add -l 2>/dev/null | grep -qF "$key_fingerprint"; then
         eval "$(ssh-agent -s)"
         ssh-add "$SSH_KEY"
     fi
@@ -478,10 +540,11 @@ else
         note_followup "Install nvm manually: https://github.com/nvm-sh/nvm#installing-and-updating"
     else
         report "info" "Installing nvm ${LATEST_NVM_VERSION}..."
-        # Download the installer to a temp file first so the download result
-        # is known before any shell code runs; the install is only recorded
-        # when the installer exits cleanly.
-        NVM_INSTALLER="${TMPDIR:-/tmp}/nvm-install.sh"
+        # Download the installer to a unique temp file first so the
+        # download result is known before any shell code runs and no
+        # predictable path can be swapped underneath us; the install is
+        # only recorded when the installer exits cleanly.
+        NVM_INSTALLER="$(mktemp "${TMPDIR:-/tmp}/nvm-install.XXXXXX")"
         if curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/${LATEST_NVM_VERSION}/install.sh" -o "$NVM_INSTALLER"; then
             if bash "$NVM_INSTALLER"; then
                 export NVM_DIR="$HOME/.nvm"
@@ -503,21 +566,18 @@ else
     fi
 fi
 
-# The script pins the latest Major version of Node.js.
-export NODE_VERSION=24
-
 print_check_message "Node.js"
 node_major="$(node --version 2>/dev/null | sed -E 's/^v([0-9]+).*/\1/')"
-if ! check_command node || [[ "$node_major" != "$NODE_VERSION" ]]; then
+if ! check_command node || [[ "$node_major" != "$NODE_MAJOR_VERSION" ]]; then
     # nvm must be usable as a shell function before install/use/alias;
     # the nvm branches above source it after a successful install.
     if ! command -v nvm &>/dev/null; then
         report "error" "nvm is not available in this shell; skipping the Node.js install."
         note_followup "Install nvm first: https://github.com/nvm-sh/nvm#installing-and-updating"
-    elif nvm install "$NODE_VERSION" && nvm use "$NODE_VERSION" && nvm alias default node; then
+    elif nvm install "$NODE_MAJOR_VERSION" && nvm use "$NODE_MAJOR_VERSION" && nvm alias default node; then
         note_added "Node.js $(cmd_version node) (via nvm)"
     else
-        report "error" "nvm could not install or activate Node.js ${NODE_VERSION}."
+        report "error" "nvm could not install or activate Node.js ${NODE_MAJOR_VERSION}."
         note_followup "Install Node.js manually: https://nodejs.org/en/download"
     fi
 else
@@ -536,14 +596,7 @@ fi
 
 # --- Applications ----------------------------------------------------------
 
-# iTerm2
-print_check_message "iTerm"
-if ! check_app "iTerm"; then
-    brew install --cask iterm2
-    note_added "iTerm2 $(app_version iTerm)"
-else
-    note_present "iTerm2 ${CHECKED_VERSION}"
-fi
+install_app iTerm iTerm2 iterm2
 
 # IDE Selection
 if [[ -n "$ARG_IDE" ]]; then
@@ -552,140 +605,54 @@ else
     select_ides
 fi
 
-# VS Code
 if [[ "$install_vscode" = true ]]; then
-    print_check_message "VS Code"
-    if ! check_app "Visual Studio Code" "VS Code"; then
-        brew install --cask visual-studio-code
-        note_added "VS Code $(app_version "Visual Studio Code")"
-    else
-        note_present "VS Code ${CHECKED_VERSION}"
-    fi
+    install_app "Visual Studio Code" "VS Code" visual-studio-code
 fi
 
-# Cursor
 if [[ "$install_cursor" = true ]]; then
-    print_check_message "Cursor"
-    if ! check_app "Cursor"; then
-        brew install --cask cursor
-        note_added "Cursor $(app_version Cursor)"
-    else
-        note_present "Cursor ${CHECKED_VERSION}"
-    fi
+    install_app Cursor Cursor cursor
 fi
 
-# Docker
+# The presence check is the docker CLI but the install is the cask and
+# the reported version is the GUI app's, so this stays a hybrid block
+# rather than install_app or install_cmd.
 print_check_message "Docker"
 if ! check_command docker; then
-    brew install --cask docker
-    note_added "Docker $(app_version Docker)"
+    if brew_install --cask docker; then
+        note_added "Docker $(app_version Docker)"
+    fi
 else
     note_present "Docker ${CHECKED_VERSION}"
 fi
 
-# docker-compose
-print_check_message "docker-compose"
-if ! check_command docker-compose; then
-    brew install docker-compose
-    note_added "docker-compose $(cmd_version docker-compose)"
-else
-    note_present "docker-compose ${CHECKED_VERSION}"
-fi
+install_cmd docker-compose
 
-# AWS CLI
-print_check_message "AWS CLI"
-if ! check_command aws; then
-    brew install awscli
-    note_added "AWS CLI $(cmd_version aws)"
-else
-    note_present "AWS CLI ${CHECKED_VERSION}"
-fi
+install_cmd aws "AWS CLI" awscli
 
-# Postman
-print_check_message "Postman"
-if ! check_app "Postman"; then
-    brew install --cask postman
-    note_added "Postman $(app_version Postman)"
-else
-    note_present "Postman ${CHECKED_VERSION}"
-fi
+install_app Postman Postman postman
 
-# Rectangle
-print_check_message "Rectangle"
-if ! check_app "Rectangle"; then
-    brew install --cask rectangle
-    note_added "Rectangle $(app_version Rectangle)"
-else
-    note_present "Rectangle ${CHECKED_VERSION}"
-fi
+install_app Rectangle Rectangle rectangle
 
 # Browser and communication apps
-print_check_message "Google Chrome"
-if ! check_app "Google Chrome"; then
-    brew install --cask google-chrome
-    note_added "Google Chrome $(app_version "Google Chrome")"
-else
-    note_present "Google Chrome ${CHECKED_VERSION}"
-fi
+install_app "Google Chrome" "Google Chrome" google-chrome
+install_app Slack Slack slack
+install_app Discord Discord discord
+install_app Telegram Telegram telegram
+install_app Signal Signal signal
+install_app WhatsApp WhatsApp whatsapp
 
-print_check_message "Slack"
-if ! check_app "Slack"; then
-    brew install --cask slack
-    note_added "Slack $(app_version Slack)"
-else
-    note_present "Slack ${CHECKED_VERSION}"
-fi
-
-print_check_message "Discord"
-if ! check_app "Discord"; then
-    brew install --cask discord
-    note_added "Discord $(app_version Discord)"
-else
-    note_present "Discord ${CHECKED_VERSION}"
-fi
-
-print_check_message "Telegram"
-if ! check_app "Telegram"; then
-    brew install --cask telegram
-    note_added "Telegram $(app_version Telegram)"
-else
-    note_present "Telegram ${CHECKED_VERSION}"
-fi
-
-print_check_message "Signal"
-if ! check_app "Signal"; then
-    brew install --cask signal
-    note_added "Signal $(app_version Signal)"
-else
-    note_present "Signal ${CHECKED_VERSION}"
-fi
-
-print_check_message "WhatsApp"
-if ! check_app "WhatsApp"; then
-    brew install --cask whatsapp
-    note_added "WhatsApp $(app_version WhatsApp)"
-else
-    note_present "WhatsApp ${CHECKED_VERSION}"
-fi
-
-# jq (JSON processor)
-print_check_message "jq"
-if ! check_command jq; then
-    brew install jq
-    note_added "jq $(cmd_version jq)"
-else
-    note_present "jq ${CHECKED_VERSION}"
-fi
+install_cmd jq
 
 # GitHub CLI
 print_check_message "GitHub CLI"
 if ! check_command gh; then
-    brew install gh
-    report "info" "After installation, run '${GREEN}gh auth login${RESET}' to authenticate with GitHub"
-    report "info" "The CLI will request permissions including 'Full control of public keys', which is needed for SSH key management"
-    report "info" "These permissions are safe and only affect your GitHub.com account, not your local system"
-    note_added "GitHub CLI (gh) $(cmd_version gh)"
-    GH_JUST_INSTALLED=true
+    if brew_install gh; then
+        report "info" "After installation, run '${GREEN}gh auth login${RESET}' to authenticate with GitHub"
+        report "info" "The CLI will request permissions including 'Full control of public keys', which is needed for SSH key management"
+        report "info" "These permissions are safe and only affect your GitHub.com account, not your local system"
+        note_added "GitHub CLI (gh) $(cmd_version gh)"
+        GH_JUST_INSTALLED=true
+    fi
 else
     note_present "GitHub CLI (gh) ${CHECKED_VERSION}"
 fi
@@ -697,33 +664,23 @@ else
     select_password_managers
 fi
 
-# MacPass
 if [[ "$install_macpass" = true ]]; then
-    print_check_message "MacPass"
-    if ! check_app "MacPass"; then
-        brew install --cask macpass
-        note_added "MacPass $(app_version MacPass)"
-    else
-        note_present "MacPass ${CHECKED_VERSION}"
-    fi
+    install_app MacPass MacPass macpass
 fi
 
-# 1Password
 if [[ "$install_1password" = true ]]; then
-    print_check_message "1Password"
-    if ! check_app "1Password"; then
-        brew install --cask 1password
-        note_added "1Password $(app_version 1Password)"
-    else
-        note_present "1Password ${CHECKED_VERSION}"
-    fi
+    install_app 1Password 1Password 1password
 fi
 
 # --- Shell setup -----------------------------------------------------------
 
 # Check and set zsh as the default shell
 print_check_message "zsh shell" "is the default shell"
-if ! check_default_shell; then
+check_default_shell
+shell_status=$?
+if (( shell_status == 2 )); then
+    note_followup "Set zsh as the default shell manually: chsh -s $(which zsh)"
+elif (( shell_status == 1 )); then
     report "warning" "Please restart your terminal after the script finishes for the shell change to take effect."
     note_added "zsh set as the default shell (${ZSH_VERSION})"
     note_followup "Restart the terminal to pick up the new default shell"

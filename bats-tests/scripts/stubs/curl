@@ -13,14 +13,44 @@ url=""
 out=""
 prev=""
 for a in "$@"; do
-  if [[ "$prev" == "-o" ]]; then
-    out="$a"
+  if [[ -n "$prev" ]]; then
+    # The previous token was a flag whose value arrives as the next
+    # argument (-o, --output, --header, ...); consume it now so the
+    # value is never mistaken for the URL.
+    case "$prev" in
+      -o|--output) out="$a" ;;
+    esac
     prev=""
     continue
   fi
   case "$a" in
-    -*) prev="$a" ;;
-    *) url="$a"; prev="" ;;
+    -o|--output)
+      prev="$a"
+      continue ;;
+    --output=*|-o=*)
+      out="${a#*=}"
+      continue ;;
+    -o?*)
+      # Attached form: -oout.sh
+      out="${a#-o}"
+      continue ;;
+    -[A-Za-z]*o)
+      # Combined short flags with a trailing -o (curl -fsSLo out.sh):
+      # the output path is the next token.
+      prev="-o"
+      continue ;;
+    --*=*)
+      # Long flag with an attached value; not the URL.
+      continue ;;
+    -b|-c|-d|-e|-F|-H|-m|-u|-w|-x|-y|-Y|-z|--header|--cookie|--cookie-jar|--data|--data-ascii|--data-binary|--data-raw|--referer|--form|--max-time|--user|--write-out|--proxy)
+      # Flags that consume a separate value token.
+      prev="$a"
+      continue ;;
+    -*)
+      continue ;;
+    *)
+      url="$a"
+      continue ;;
   esac
 done
 

@@ -51,6 +51,10 @@ ensure_fresh() {
 
     report "info" "Checking if ${display_name} is up-to-date with the remote..."
     git -C "$repo_root" rev-parse --is-inside-work-tree &>/dev/null || return 0
+    # The check only means anything when the clone actually tracks this
+    # script; on piped runs repo_root resolves outside the real checkout
+    # and an unrelated clone must not be fetched from or diffed.
+    [[ -f "$repo_root/$script_path" ]] || return 0
 
     if ! git -C "$repo_root" fetch origin &>/dev/null; then
         report "warning" "Could not reach the remote; skipping the version check."
@@ -85,7 +89,9 @@ start_run_log() {
     local basename="$1"
     local esc=$'\033'
     LOG_FILE="$(pwd)/${basename}-$(date +%Y-%m-%d-%H-%M-%S).log"
-    exec > >(tee >(sed -u -E "s/${esc}\[[0-9;]*[A-Za-z]//g" > "$LOG_FILE")) 2>&1
+    # macOS ships BSD sed, which rejects GNU's -u and would leave the
+    # log empty; -l is its line-buffered equivalent.
+    exec > >(tee >(sed -l -E "s/${esc}\[[0-9;]*[A-Za-z]//g" > "$LOG_FILE")) 2>&1
     report "info" "Run log: ${GREEN}${LOG_FILE}${RESET}"
     echo
 }

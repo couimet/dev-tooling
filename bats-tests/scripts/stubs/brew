@@ -9,17 +9,24 @@ case "$1" in
     echo "Homebrew 4.5.0"
     exit 0 ;;
   install)
+    # BREW_INSTALL_FAIL=1 simulates a failed install so the scripts'
+    # error and follow-up paths can be exercised.
+    [[ "$BREW_INSTALL_FAIL" == "1" ]] && exit 1
     echo "Installing (stub): $*"
     exit 0 ;;
   list)
-    if [[ "$2" == "--versions" && "$3" == "git" ]]; then
+    # Match on the package name wherever it sits in the arguments, so
+    # callers can add flags (brew list --formula pnpm) without the stub
+    # reporting the package as absent.
+    last_arg="${*: -1}"
+    if [[ "$last_arg" == "git" ]] && [[ "$*" == *"--versions"* ]]; then
       if [[ "$BREW_HAS_GIT" == "1" ]]; then
         echo "git ${BREW_GIT_VERSION:-2.55.0}"
         exit 0
       fi
       exit 1
     fi
-    if [[ "$2" == "pnpm" ]]; then
+    if [[ "$last_arg" == "pnpm" ]]; then
       if [[ "$BREW_HAS_PNPM" == "1" ]]; then
         echo "pnpm"
         exit 0

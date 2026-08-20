@@ -1,4 +1,6 @@
 #!/bin/bash
-# ssh-agent stub: emits a fake socket so `eval "$(ssh-agent -s)"` is a no-op.
+# ssh-agent stub: emits fake agent variables so `eval "$(ssh-agent -s)"`
+# is a no-op, matching the output shape of the real ssh-agent -s.
 echo "ssh-agent $*" >> "$STUB_CALLS"
 echo "SSH_AUTH_SOCK=$HOME/.ssh-agent.sock; export SSH_AUTH_SOCK;"
+echo "SSH_AGENT_PID=4242; export SSH_AGENT_PID;"

@@ -6,7 +6,14 @@
 #   GIT_STUB_FETCH_FAIL=1       -> fetch fails
 #   GIT_STUB_DIFF_DIRTY=1       -> diff against origin/main fails
 echo "git $*" >> "$STUB_CALLS"
-[[ "$1" == "-C" ]] && shift 2
+git_c_args=()
+if [[ "$1" == "-C" ]]; then
+  # Keep the -C directory for the delegated fall-through below so a
+  # subcommand the stub does not special-case still runs in the right
+  # place.
+  git_c_args=(-C "$2")
+  shift 2
+fi
 
 case "$1" in
   rev-parse)
@@ -27,5 +34,5 @@ case "$1" in
   diff)
     [[ "$GIT_STUB_DIFF_DIRTY" == "1" ]] && exit 1 || exit 0 ;;
   *)
-    exec /usr/bin/git "$@" ;;
+    exec /usr/bin/git "${git_c_args[@]}" "$@" ;;
 esac

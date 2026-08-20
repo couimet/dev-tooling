@@ -291,6 +291,17 @@ EOF
   [[ "$clean" == *"✔ Git"* ]]
 }
 
+@test "reports a follow-up when brew install git fails" {
+  baseline_env
+  export FORCE_COMMAND_MISSING="git" BREW_INSTALL_FAIL=1
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"brew install git failed."* ]]
+  [[ "$output" == *"Install it manually: brew install git"* ]]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" != *"✔ Git"* ]]
+}
+
 @test "no shadow warning when git resolves outside /usr/bin" {
   baseline_env
   register_stub git
@@ -397,7 +408,8 @@ EOF
   run zsh "$OSX" --ide skip --password-manager skip
   [ "$status" -eq 0 ]
   [[ "$output" == *"Installing nvm v0.40.3"* ]]
-  [[ "$output" == *"✔ nvm v0.40.3"* ]]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" == *"✔ nvm v0.40.3"* ]]
   [ -f "$HOME/.nvm/nvm.sh" ]
 }
 
@@ -539,6 +551,16 @@ EOF
   [[ "$output" == *"→ version: unknown"* ]]
 }
 
+@test "reports a follow-up when an app install fails" {
+  baseline_env
+  export BREW_INSTALL_FAIL=1
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"brew install --cask iterm2 failed."* ]]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" != *"✔ iTerm2"* ]]
+}
+
 # --- CLIs -----------------------------------------------------------------
 
 @test "Docker CLI present and Docker app present" {
@@ -573,10 +595,11 @@ EOF
   export FORCE_COMMAND_MISSING="docker-compose aws jq gh"
   run zsh "$OSX" --ide skip --password-manager skip
   [ "$status" -eq 0 ]
-  [[ "$output" == *"✔ docker-compose"* ]]
-  [[ "$output" == *"✔ AWS CLI"* ]]
-  [[ "$output" == *"✔ jq"* ]]
-  [[ "$output" == *"✔ GitHub CLI (gh)"* ]]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" == *"✔ docker-compose"* ]]
+  [[ "$clean" == *"✔ AWS CLI"* ]]
+  [[ "$clean" == *"✔ jq"* ]]
+  [[ "$clean" == *"✔ GitHub CLI (gh)"* ]]
   [[ "$output" == *"Run 'gh auth login'"* ]]
 }
 
@@ -663,6 +686,17 @@ EOF
   [[ "$output" == *"switching with chsh"* ]]
   [[ "$output" == *"Restart the terminal"* ]]
   grep -q "chsh" "$STUB_CALLS"
+}
+
+@test "reports a follow-up when chsh fails" {
+  baseline_env
+  export CHSH_FAIL=1
+  run env SHELL=/bin/bash zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"chsh failed"* ]]
+  [[ "$output" == *"Set zsh as the default shell manually"* ]]
+  [[ "$output" != *"zsh set as the default shell"* ]]
+  [[ "$output" != *"Restart the terminal"* ]]
 }
 
 @test "oh-my-zsh is reported present with its version" {

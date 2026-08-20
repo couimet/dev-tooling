@@ -208,6 +208,19 @@ EOF
   [[ "$output" == *"already registered"* ]]
 }
 
+@test "skips registration when the same key is registered with a different comment" {
+  mkdir -p "$HOME/.config/git"
+  local pub
+  pub="$(cat "$HOME/.ssh/id_ed25519.pub")"
+  # Same key type and body, different trailing comment than the one the
+  # key file carries; only the type and body must be compared.
+  echo "test@example.com ${pub% *} some-other-comment" > "$HOME/.config/git/allowed_signers"
+  run zsh "$GSSH" --key "$HOME/.ssh/id_ed25519"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"already registered"* ]]
+  [ "$(wc -l < "$HOME/.config/git/allowed_signers" | tr -d ' ')" = "1" ]
+}
+
 @test "missing public key exits 1" {
   rm "$HOME/.ssh/id_ed25519.pub"
   run zsh "$GSSH" --key "$HOME/.ssh/id_ed25519"
