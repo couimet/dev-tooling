@@ -324,3 +324,18 @@ EOF
   [ "$status" -eq 0 ]
   [ -z "$(find . -maxdepth 1 -name 'setup-github-ssh-*.log' | head -1)" ]
 }
+
+# --- version --------------------------------------------------------------
+
+@test "start banner reports the stamped version" {
+  run zsh "$GSSH" --key "$HOME/.ssh/id_ed25519"
+  [ "$status" -eq 0 ]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" =~ dev-tooling\ setup\ scripts\ [0-9]{4}\.[0-9]{2}\.[0-9]{2}@[0-9a-f]{7,40} ]]
+}
+
+@test "--version prints the stamped version and exits 0" {
+  run zsh "$GSSH" --version
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}@[0-9a-f]{7,40}$ ]]
+}

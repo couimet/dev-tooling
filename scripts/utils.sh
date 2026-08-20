@@ -4,6 +4,13 @@
 # Shared helpers sourced by the setup-* scripts in this repo.
 # Not meant to be executed on its own.
 
+# Stamped CalVer version: replaced on every push to main by the
+# stamp-version-calver workflow. The seed placeholder is never shipped.
+# Uses a distinct name so sourcing this file cannot clobber the entry
+# scripts' own VERSION assignments.
+# shellcheck disable=SC2034  # stamped metadata, inspected manually; not read at runtime
+VERSION_UTILS="2026.08.19@0000000"
+
 # --- Colors and text styles --------------------------------------------
 
 BOLD='\033[1m'

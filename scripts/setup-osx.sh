@@ -18,6 +18,12 @@ NODE_MAJOR_VERSION=24
 # from a raw pipe instead of a checkout; point it at a fork to test.
 HELPERS_BASE_URL="https://raw.githubusercontent.com/couimet/dev-tooling/main/scripts"
 
+# Stamped CalVer version: replaced on every push to main by the
+# stamp-version-calver workflow. The seed placeholder is never shipped.
+# Each script carries its own copy so a stale script reports its own
+# version instead of inheriting a fresh one from the sourced helpers.
+VERSION="2026.08.19@0000000"
+
 # --- Shared helpers --------------------------------------------------------
 
 # Resolve the directory holding the shared helpers. When this script runs
@@ -79,6 +85,7 @@ Options:
   --ide <choice>               vscode | cursor | both | skip
   --password-manager <choice>  macpass | 1password | both | skip
   -h, --help                   Show this help message and exit
+  --version                   Print the stamped version and exit
 
 When a flag is omitted, the script prompts for that choice interactively.
 EOF
@@ -106,6 +113,10 @@ while [[ $# -gt 0 ]]; do
             usage
             exit 0
             ;;
+        --version)
+            echo "$VERSION"
+            exit 0
+            ;;
         *)
             report "error" "Unknown option: $1"
             report "info" "Run with --help to see the usage."
@@ -124,6 +135,11 @@ case "$ARG_PASSWORD_MANAGER" in
     ""|macpass|1password|both|skip) ;;
     *) report "error" "Unknown --password-manager choice: ${ARG_PASSWORD_MANAGER}"; exit 1 ;;
 esac
+
+# Report this script's own stamped CalVer@SHA version so piped runs
+# (curl | zsh) show what they executed, and a stale script copy reports
+# its own stamp rather than a fresh one from the sourced helpers.
+report "info" "dev-tooling setup scripts ${VERSION}"
 
 # Mirror the run to a timestamped log (path is printed by the helper).
 start_run_log "setup-osx"

@@ -12,6 +12,12 @@
 # untouched, so a second run changes nothing and only confirms what is
 # already in place.
 
+# Stamped CalVer version: replaced on every push to main by the
+# stamp-version-calver workflow. The seed placeholder is never shipped.
+# Each script carries its own copy so a stale script reports its own
+# version instead of inheriting a fresh one from the sourced helpers.
+VERSION="2026.08.19@0000000"
+
 # shellcheck disable=SC2296  # zsh-specific script path expansion
 SCRIPT_DIR="$(cd "$(dirname "${(%):-%x}")" && pwd)"
 # shellcheck disable=SC1091  # helper lives next to the script
@@ -35,6 +41,7 @@ All steps are idempotent; existing settings are detected and left as-is.
 Options:
   --key PATH   Path to the SSH key to configure (default: ~/.ssh/id_ed25519)
   -h, --help   Show this help message and exit
+  --version   Print the stamped version and exit
 EOF
 }
 
@@ -59,6 +66,10 @@ while [[ $# -gt 0 ]]; do
             usage
             exit 0
             ;;
+        --version)
+            echo "$VERSION"
+            exit 0
+            ;;
         *)
             report "error" "Unknown option: $1"
             report "info" "Run with --help to see the usage."
@@ -75,6 +86,10 @@ if [[ -t 1 || "$FORCE_INTERACTIVE" == "1" ]]; then
     start_run_log "setup-github-ssh"
     ensure_fresh "scripts/setup-github-ssh.sh" "setup-github-ssh.sh"
 fi
+
+# Report this script's own stamped CalVer@SHA version, so a stale copy
+# reports its own stamp rather than a fresh one from the sourced helpers.
+report "info" "dev-tooling setup scripts ${VERSION}"
 
 # --- Key checks ----------------------------------------------------------
 

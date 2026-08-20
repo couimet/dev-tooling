@@ -1,0 +1,50 @@
+name: 'Stamp CalVer versions into scripts'
+description: 'Stamps a CalVer@SHA VERSION assignment into the listed files and commits the changes when any file was updated. Delegates all logic to stamp.sh and commit-if-changed.sh so BATS can cover every branch; stamp.sh resolves the file list once and passes the modified files (one per line) to the commit step.'
+inputs:
+  files:
+    description: 'Space-separated list of files or glob patterns to stamp.'
+    required: true
+  exclude:
+    description: 'Space-separated glob patterns of files to skip.'
+    required: false
+    default: ''
+  version-file:
+    description: 'File whose top ## YYYY.0M.0D entry provides the CalVer part of the version.'
+    required: false
+    default: 'CHANGELOG.md'
+  version:
+    description: 'Optional CalVer@SHA override; derived from version-file plus git HEAD when empty.'
+    required: false
+    default: ''
+  variable:
+    description: 'Name of the assignment to stamp (default: VERSION; use e.g. VERSION_UTILS for a sourced helper).'
+    required: false
+    default: 'VERSION'
+
+runs:
+  using: composite
+  steps:
+    - name: Stamp VERSION into files
+      id: stamp
+      shell: bash
+      env:
+        FILES: ${{ inputs.files }}
+        EXCLUDE: ${{ inputs.exclude }}
+        VERSION_FILE: ${{ inputs.version-file }}
+        VERSION: ${{ inputs.version }}
+        VAR_NAME: ${{ inputs.variable }}
+      run: |
+        changed="$(bash "${{ github.action_path }}/stamp.sh")"
+        {
+          echo "changed-files<<STAMP_EOF"
+          printf '%s\n' "$changed"
+          echo "STAMP_EOF"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Commit stamped files (if changed)
+      shell: bash
+      env:
+        FILES: ${{ steps.stamp.outputs.changed-files }}
+        VERSION_FILE: ${{ inputs.version-file }}
+        VERSION: ${{ inputs.version }}
+      run: bash "${{ github.action_path }}/commit-if-changed.sh"
