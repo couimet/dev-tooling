@@ -1,0 +1,14 @@
+#!/bin/bash
+# ssh-add stub. With SSH_ADD_HAS_ED25519=1, `ssh-add -l` reports the
+# fingerprint of the test's id_ed25519 key as loaded; otherwise the
+# listing fails so scripts load the key again.
+echo "ssh-add $*" >> "$STUB_CALLS"
+if [[ "$1" == "-l" ]]; then
+  if [[ "$SSH_ADD_HAS_ED25519" == "1" ]]; then
+    fp="$(ssh-keygen -lf "$HOME/.ssh/id_ed25519.pub" 2>/dev/null | awk '{print $2}')"
+    echo "256 ${fp:-SHA256:unknown} test@example.com (ED25519)"
+    exit 0
+  fi
+  exit 1
+fi
+exit 0

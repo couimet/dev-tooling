@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  bats-test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      # zsh is not installed on ubuntu-latest runners, so the syntax check
+      # lives here on the macOS job, which always has zsh.
+      - name: Check zsh syntax
+        run: |
+          for script in scripts/*.sh; do
+            zsh -n "$script"
+          done
+      - uses: couimet/github-actions/bats-test@main
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  shellcheck:
+    # Shell script linting. Runs on Ubuntu where shellcheck is preinstalled;
+    # the BATS suite above needs macOS. The workflow grants pull-requests:
+    # write for the comment publishing above, so scope this job down.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Lint shell scripts
+        uses: couimet/github-actions/shellcheck@main
+        with:
+          paths: scripts bats-tests/scripts
+      - name: Lint extensionless stubs
+        uses: couimet/github-actions/shellcheck@main
+        with:
+          paths: bats-tests/scripts/stubs
+          extensions: ''

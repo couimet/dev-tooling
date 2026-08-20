@@ -1,0 +1,8 @@
+#!/bin/bash
+# defaults stub: returns a fixed version for every plist read.
+# DEFAULT_VERSION=FAIL simulates an unreadable plist.
+echo "defaults $*" >> "$STUB_CALLS"
+if [[ "$DEFAULT_VERSION" == "FAIL" ]]; then
+  exit 1
+fi
+echo "${DEFAULT_VERSION:-1.2.3}"

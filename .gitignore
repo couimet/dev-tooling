@@ -1,1 +1,7 @@
 .history
+
+# Claude skill working directories
+.claude-work/
+
+# Run logs written by the setup-* scripts in the invocation directory
+setup-*.log

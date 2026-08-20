@@ -1,0 +1,5 @@
+#!/bin/bash
+# pbcopy stub: swallows stdin like the real clipboard.
+echo "pbcopy" >> "$STUB_CALLS"
+cat > /dev/null
+exit 0

@@ -1,0 +1,107 @@
+#!/bin/bash
+# curl stub. Serves canned responses keyed on the URL:
+#   - nvm latest-release JSON (tag v0.40.3)
+#   - a fake nvm installer that drops a working nvm.sh into $HOME/.nvm
+#     (fails with exit 22 when CURL_NVM_INSTALL_FAIL=1)
+#   - a fake oh-my-zsh installer and a fake Homebrew installer
+#   - the real companion scripts from the project (unless
+#     CURL_SERVE_COMPANIONS=0, which makes every download fail)
+# The body goes to stdout, or to the -o target when one is given.
+echo "curl $*" >> "$STUB_CALLS"
+
+url=""
+out=""
+prev=""
+for a in "$@"; do
+  if [[ -n "$prev" ]]; then
+    # The previous token was a flag whose value arrives as the next
+    # argument (-o, --output, --header, ...); consume it now so the
+    # value is never mistaken for the URL.
+    case "$prev" in
+      -o|--output) out="$a" ;;
+    esac
+    prev=""
+    continue
+  fi
+  case "$a" in
+    -o|--output)
+      prev="$a"
+      continue ;;
+    --output=*|-o=*)
+      out="${a#*=}"
+      continue ;;
+    -o?*)
+      # Attached form: -oout.sh
+      out="${a#-o}"
+      continue ;;
+    -[A-Za-z]*o)
+      # Combined short flags with a trailing -o (curl -fsSLo out.sh):
+      # the output path is the next token.
+      prev="-o"
+      continue ;;
+    --*=*)
+      # Long flag with an attached value; not the URL.
+      continue ;;
+    -b|-c|-d|-e|-F|-H|-m|-u|-w|-x|-y|-Y|-z|--header|--cookie|--cookie-jar|--data|--data-ascii|--data-binary|--data-raw|--referer|--form|--max-time|--user|--write-out|--proxy)
+      # Flags that consume a separate value token.
+      prev="$a"
+      continue ;;
+    -*)
+      continue ;;
+    *)
+      url="$a"
+      continue ;;
+  esac
+done
+
+serve() {
+  if [[ -n "$out" && "$out" != "-" ]]; then
+    printf '%s\n' "$body" > "$out"
+  else
+    printf '%s\n' "$body"
+  fi
+}
+
+body=""
+case "$url" in
+  *api.github.com/repos/nvm-sh/nvm/releases/latest*)
+    # CURL_NVM_LATEST_FAIL=1 simulates an unreachable API so the script's
+    # LATEST_NVM_VERSION comes out empty.
+    if [[ "$CURL_NVM_LATEST_FAIL" == "1" ]]; then
+      exit 22
+    fi
+    body='{"tag_name": "v0.40.3"}'
+    serve ;;
+  *nvm-sh/nvm/*install.sh*)
+    # CURL_NVM_INSTALL_FAIL=1 simulates a failed installer download so
+    # the script's bash invocation is never reached.
+    if [[ "$CURL_NVM_INSTALL_FAIL" == "1" ]]; then
+      exit 22
+    fi
+    body="$(cat <<'INSTALLER'
+mkdir -p "$HOME/.nvm"
+cat > "$HOME/.nvm/nvm.sh" <<'NVM'
+nvm() { echo "nvm $*"; }
+NVM
+touch "$HOME/.nvm/bash_completion"
+INSTALLER
+)"
+    serve ;;
+  *ohmyzsh*install.sh*)
+    body="echo 'oh-my-zsh installer ran' > '$HOME/.oh-my-zsh-installed'"
+    serve ;;
+  *raw.githubusercontent.com/Homebrew/install*)
+    body="echo 'homebrew installer ran' > '$HOME/.homebrew-installed'"
+    serve ;;
+  *raw.githubusercontent.com/couimet/dev-tooling/main/scripts/*)
+    if [[ "$CURL_SERVE_COMPANIONS" == "0" ]]; then
+      exit 22
+    fi
+    if ! body="$(cat "$PROJECT_ROOT/scripts/${url##*/}")"; then
+      echo "curl stub: cannot read companion script ${url##*/}" >&2
+      exit 22
+    fi
+    serve ;;
+  *)
+    exit 22 ;;
+esac
