@@ -23,7 +23,8 @@
 # Each file is stamped in place:
 #   - an existing 'VERSION="..."' line is replaced with the new version
 #   - otherwise 'VERSION="..."' (plus a blank line) is inserted after the
-#     shebang and header comment block, before the first line of code
+#     shebang and header comment block, before the first line of code, or
+#     appended at the end when the file has no code line
 #
 # Output:
 #   stdout   the list of modified files, one per line (empty when nothing
@@ -216,6 +217,12 @@ for file in "${file_list[@]+"${file_list[@]}"}"; do
       mode == "replace" && $0 ~ ("^" name "=\".*\"$") { print name "=\"" ver "\""; next }
       mode == "insert" && !inserted && !/^[[:space:]]*(#.*)?$/ { print name "=\"" ver "\""; print ""; inserted=1 }
       { print }
+      END {
+        if (mode == "insert" && !inserted) {
+          print name "=\"" ver "\""
+          print ""
+        }
+      }
     ' "$file" > "$tmp_file"
     cat "$tmp_file" > "$file"
     rm -f "$tmp_file"

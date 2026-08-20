@@ -38,7 +38,7 @@ Shared helpers sourced by both scripts above: status printing, the freshness che
 
 ### Versioning
 
-The setup scripts are stamped with a `CalVer@SHA` version (e.g. `2026.08.19@a1b2c3d`): the CalVer date comes from the top entry of [CHANGELOG.md](./CHANGELOG.md) and the SHA is the git commit the version was stamped with. Every setup script prints its version in the start banner and also print it on demand via `--version`. `scripts/utils.sh` carries its own stamp under the name `VERSION_UTILS`, so each file reports its own version.
+The setup scripts are stamped with a `CalVer@SHA` version (e.g. `2026.08.19@a1b2c3d`): the CalVer date comes from the top entry of [CHANGELOG.md](./CHANGELOG.md) and the SHA is the git commit the version was stamped with. Every setup script prints its version in the start banner and also prints it on demand via `--version`. `scripts/utils.sh` carries its own stamp under the name `VERSION_UTILS`, so each file reports its own version.
 
 The [stamp-version-calver workflow](./.github/workflows/stamp-version-calver.yml) drives a local composite action ([.github/actions/stamp-version-calver](./.github/actions/stamp-version-calver)) that re-stamps the scripts on every push to main, so the version you see is always the latest released one.
 

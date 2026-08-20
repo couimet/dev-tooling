@@ -71,6 +71,23 @@ fixture_repo_with_remote() {
   [ "$(sed -n "$((version_line + 1))p" target.sh)" = "" ]
 }
 
+@test "stamp inserts at the end when the file has no code line" {
+  fixture_repo
+  cat > target.sh <<'EOF'
+#!/bin/zsh
+# Target script used by the stamp action tests.
+# Still no code line: shebang and comments only.
+EOF
+  run env FILES=target.sh VERSION=2026.08.19@abc1234 bash "$STAMP"
+  [ "$status" -eq 0 ]
+  [ "$(grep -c '^VERSION=' target.sh)" -eq 1 ]
+  grep -q 'VERSION="2026.08.19@abc1234"' target.sh
+  local version_line; version_line="$(grep -n '^VERSION=' target.sh | cut -d: -f1)"
+  [ "$version_line" -gt 3 ]
+  [ "$(sed -n "$((version_line + 1))p" target.sh)" = "" ]
+  [[ "$output" == *"target.sh"* ]]
+}
+
 @test "stamp reports skipped when the file is already at the target version" {
   fixture_repo
   echo 'VERSION="2026.08.19@abc1234"' >> target.sh
