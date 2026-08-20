@@ -16,7 +16,7 @@
 # stamp-version-calver workflow. The seed placeholder is never shipped.
 # Each script carries its own copy so a stale script reports its own
 # version instead of inheriting a fresh one from the sourced helpers.
-VERSION="2026.08.19@0000000"
+VERSION="2026.08.19@8a7b160"
 
 # shellcheck disable=SC2296  # zsh-specific script path expansion
 SCRIPT_DIR="$(cd "$(dirname "${(%):-%x}")" && pwd)"
