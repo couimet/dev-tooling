@@ -42,7 +42,7 @@ jobs:
       - name: Lint shell scripts
         uses: couimet/github-actions/shellcheck@main
         with:
-          paths: scripts bats-tests/scripts
+          paths: scripts bats-tests/scripts .github/actions
       - name: Lint extensionless stubs
         uses: couimet/github-actions/shellcheck@main
         with:

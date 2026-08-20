@@ -737,3 +737,19 @@ EOF
   [[ "$output" == *"Run log:"* ]]
   [[ -n "$(find . -maxdepth 1 -name 'setup-osx-*.log' | head -1)" ]]
 }
+
+# --- version --------------------------------------------------------------
+
+@test "start banner reports the stamped version" {
+  baseline_env
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" =~ dev-tooling\ setup\ scripts\ [0-9]{4}\.[0-9]{2}\.[0-9]{2}@[0-9a-f]{7,40} ]]
+}
+
+@test "--version prints the stamped version and exits 0" {
+  run zsh "$OSX" --version
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}@[0-9a-f]{7,40}$ ]]
+}

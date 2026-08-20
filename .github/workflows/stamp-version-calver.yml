@@ -1,0 +1,33 @@
+name: Stamp Versions
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  stamp:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 1
+
+      # Local composite action, invoked once per variable group with glob
+      # selection so new scripts are stamped without workflow edits. The
+      # action lives outside scripts/ so it never stamps itself. utils.sh
+      # is excluded from the default group and is its own group under a
+      # distinct assignment name, so sourcing it cannot clobber the entry
+      # scripts' own VERSION copies. One commit per changed group on a
+      # push is accepted.
+      - uses: ./.github/actions/stamp-version-calver
+        with:
+          files: scripts/*.sh
+          exclude: scripts/utils.sh
+      - uses: ./.github/actions/stamp-version-calver
+        with:
+          files: scripts/utils.sh
+          variable: VERSION_UTILS
