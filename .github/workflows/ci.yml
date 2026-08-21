@@ -48,3 +48,16 @@ jobs:
         with:
           paths: bats-tests/scripts/stubs
           extensions: ''
+
+  markdownlint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Lint markdown
+        uses: couimet/github-actions/markdownlint@main
+        with:
+          config: .markdownlint-cli2.jsonc
