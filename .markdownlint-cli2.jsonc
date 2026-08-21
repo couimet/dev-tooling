@@ -1,0 +1,11 @@
+{
+  // markdownlint-cli2 v0.22 does not auto-discover this file: always
+  // pass --config .markdownlint-cli2.jsonc explicitly.
+  "config": {
+    // Line length is not enforced: README and CHANGELOG have long
+    // unbreakable lines (e.g. the curl quick-install URL), and verbatim
+    // blocks like the copy-pasteable couimet-actions-main XML rule must
+    // stay un-reflowed.
+    "MD013": false
+  }
+}

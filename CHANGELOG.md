@@ -34,4 +34,3 @@ Entries are organized using [Keep a Changelog](https://keepachangelog.com/) cate
 ### Added
 
 - `setup-osx.sh` script to set up a macOS dev laptop for an [upcoming role at Octav Labs](https://ouimet.info/#changelog-7-0-0).
-
