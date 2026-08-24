@@ -38,6 +38,7 @@ setup_common() {
   make_tool aws "aws-cli/2.17.30"
   make_tool jq "jq-1.7.1"
   make_tool gh "gh version 2.55.0 (2024-08-01)"
+  make_tool claude "2.1.211 (Claude Code)"
   cat > "$TEST_BIN/node" <<'EOF'
 #!/bin/bash
 echo "${NODE_VERSION_OUTPUT:-v24.1.0}"

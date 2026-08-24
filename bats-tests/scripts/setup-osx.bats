@@ -588,11 +588,12 @@ EOF
   [[ "$output" == *"AWS CLI aws-cli/2.17.30"* ]]
   [[ "$output" == *"jq jq-1.7.1"* ]]
   [[ "$output" == *"GitHub CLI (gh) gh version 2.55.0"* ]]
+  [[ "$output" == *"Claude Code 2.1.211 (Claude Code)"* ]]
 }
 
 @test "missing CLIs are installed and gh gets the auth follow-up" {
   baseline_env
-  export FORCE_COMMAND_MISSING="docker-compose aws jq gh"
+  export FORCE_COMMAND_MISSING="docker-compose aws jq gh claude"
   run zsh "$OSX" --ide skip --password-manager skip
   [ "$status" -eq 0 ]
   local clean; clean="$(plain "$output")"
@@ -600,7 +601,19 @@ EOF
   [[ "$clean" == *"✔ AWS CLI"* ]]
   [[ "$clean" == *"✔ jq"* ]]
   [[ "$clean" == *"✔ GitHub CLI (gh)"* ]]
+  [[ "$clean" == *"✔ Claude Code"* ]]
   [[ "$output" == *"Run 'gh auth login'"* ]]
+}
+
+@test "reports a follow-up when the claude-code cask install fails" {
+  baseline_env
+  export FORCE_COMMAND_MISSING="claude" BREW_INSTALL_FAIL=1
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"brew install --cask claude-code failed."* ]]
+  [[ "$output" == *"Install it manually: brew install --cask claude-code"* ]]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" != *"✔ Claude Code"* ]]
 }
 
 @test "falls back to -v when --version is unsupported" {
