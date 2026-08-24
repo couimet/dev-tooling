@@ -12,6 +12,8 @@ The run ends with a combined summary, and the full run is captured to a timestam
 
 For an unattended run, pass `--ide <vscode|cursor|both|skip>` and `--password-manager <macpass|1password|both|skip>`; without the flags the script prompts for those choices.
 
+The script also installs the recommended IDE extensions into every IDE it finds on disk (VS Code and Cursor), independently of the `--ide` choice.
+
 #### Quick Install
 
 If you want to run it as is -- without even downloading it -- you can do so by running the following command:

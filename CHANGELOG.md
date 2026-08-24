@@ -8,6 +8,12 @@ This project uses [Calendar Versioning](https://calver.org/) with the format `YY
 
 Entries are organized using [Keep a Changelog](https://keepachangelog.com/) categories: **Added**, **Changed**, **Fixed**, **Removed**. Not every release uses every category; include only the ones that apply.
 
+## 2026.08.24.1
+
+### Added
+
+- setup-osx.sh now installs a shared list of recommended extensions for VS Code and Cursor (including rangelink-vscode-extension) into every IDE found on disk, independently of the `--ide` selection. ([issues/11](https://github.com/couimet/dev-tooling/issues/11))
+
 ## 2026.08.24
 
 ### Added

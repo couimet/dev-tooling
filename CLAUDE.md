@@ -16,7 +16,9 @@ scripts and their flags.
 ## Conventions
 
 - Notable changes get an entry in `CHANGELOG.md` under a CalVer
-  heading (`YYYY.0M.0D`, micro suffix for same-day multiples), Keep a
+  heading (the first entry of a day uses the bare date, e.g.
+  `2026.08.24`; each additional entry the same day appends the next
+  micro suffix in sequence: `.1`, `.2`, `.3`), Keep a
   Changelog categories, newest on top. Changes that are not user
   facing get no entry. The top entry drives the CalVer used for script
   stamping.

@@ -4,6 +4,11 @@ load test_helper
 
 setup() {
   setup_common
+  # Keep code/cursor and other Homebrew/local tools out of the sandbox:
+  # this machine has real code and cursor on PATH, which would otherwise
+  # make install_ide_extensions reach out to the real installs. Tests
+  # opt an IDE in explicitly by creating a stub in TEST_BIN.
+  export PATH="$TEST_BIN:/usr/bin:/bin:/usr/sbin:/sbin"
   copy_scripts
   OSX="$TEST_SCRIPTS/setup-osx.sh"
 }
@@ -26,6 +31,16 @@ EOF
 
 APPS_DISPLAY=("iTerm2" "VS Code" "Cursor" "Postman" "Rectangle" "Google Chrome" "Slack" "Discord" "Telegram" "Signal" "WhatsApp" "MacPass" "1Password")
 APPS_PATHS=("iTerm" "Visual Studio Code" "Cursor" "Postman" "Rectangle" "Google Chrome" "Slack" "Discord" "Telegram" "Signal" "WhatsApp" "MacPass" "1Password")
+
+# The shared IDE extension list, mirrored from scripts/setup-osx.sh.
+IDE_EXTENSIONS=(
+  esbenp.prettier-vscode
+  dbaeumer.vscode-eslint
+  eamodio.gitlens
+  pflannery.vscode-versionlens
+  bierner.markdown-mermaid
+  couimet.rangelink-vscode-extension
+)
 
 # --- CLI ------------------------------------------------------------------
 
@@ -680,6 +695,139 @@ EOF
   [ "$status" -eq 0 ]
   local clean; clean="$(plain "$output")"
   [[ "$clean" == *"✔ docker-compose unknown"* ]]
+}
+
+# --- IDE extensions ------------------------------------------------------
+
+# make_ide_stub <cli> <installed-env> <fail-env> — a fake code/cursor CLI
+# in TEST_BIN, created per-test so other tests never see an IDE present.
+# --list-extensions prints one installed ID per line from the installed
+# env var; --install-extension records the invocation to STUB_CALLS, and
+# exits 1 when the fail env var is set (a failing install) or prints a
+# success line and exits 0; any other argument prints a version string.
+make_ide_stub() {
+  local cli="$1" installed_env="$2" fail_env="$3"
+  cat > "$TEST_BIN/$cli" <<EOF
+#!/bin/bash
+case "\$1" in
+  --list-extensions)
+    for id in \${$installed_env:-}; do
+      echo "\$id"
+    done
+    ;;
+  --install-extension)
+    echo "$cli --install-extension \$2" >> "\$STUB_CALLS"
+    if [[ "\$$fail_env" == "1" ]]; then
+      exit 1
+    fi
+    echo "Installing extension \$2..."
+    ;;
+  *)
+    echo "1.99.0"
+    ;;
+esac
+EOF
+  chmod +x "$TEST_BIN/$cli"
+}
+
+@test "skips IDE extensions when no IDE is on disk" {
+  baseline_env
+  run zsh "$OSX" --ide both --password-manager both
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"No VS Code installation found; skipping its extensions."* ]]
+  [[ "$output" == *"No Cursor installation found; skipping its extensions."* ]]
+  ! grep -q -- "--install-extension" "$STUB_CALLS"
+}
+
+@test "installs all IDE extensions via code on PATH" {
+  baseline_env
+  make_ide_stub code CODE_INSTALLED_EXTENSIONS CODE_INSTALL_FAIL
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  local clean; clean="$(plain "$output")"
+  for id in "${IDE_EXTENSIONS[@]}"; do
+    grep -q "code --install-extension $id" "$STUB_CALLS"
+    [[ "$clean" == *"✔ VS Code: $id"* ]]
+  done
+  [[ "$output" != *"No VS Code installation found"* ]]
+  [[ "$output" == *"No Cursor installation found; skipping its extensions."* ]]
+}
+
+@test "an already installed extension is reported present and not reinstalled" {
+  baseline_env
+  make_ide_stub code CODE_INSTALLED_EXTENSIONS CODE_INSTALL_FAIL
+  export CODE_INSTALLED_EXTENSIONS="esbenp.prettier-vscode"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [ "$(grep -c "code --install-extension esbenp.prettier-vscode" "$STUB_CALLS")" -eq 0 ]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" == *"- VS Code: esbenp.prettier-vscode"* ]]
+  local count; count="$(grep -c "code --install-extension" "$STUB_CALLS")"
+  [ "$count" -eq 5 ]
+}
+
+@test "installs all IDE extensions via cursor on PATH" {
+  baseline_env
+  make_ide_stub cursor CURSOR_INSTALLED_EXTENSIONS CURSOR_INSTALL_FAIL
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  local clean; clean="$(plain "$output")"
+  for id in "${IDE_EXTENSIONS[@]}"; do
+    grep -q "cursor --install-extension $id" "$STUB_CALLS"
+    [[ "$clean" == *"✔ Cursor: $id"* ]]
+  done
+  [[ "$output" != *"No Cursor installation found"* ]]
+  [[ "$output" == *"No VS Code installation found; skipping its extensions."* ]]
+}
+
+@test "installs all IDE extensions to both code and cursor" {
+  baseline_env
+  make_ide_stub code CODE_INSTALLED_EXTENSIONS CODE_INSTALL_FAIL
+  make_ide_stub cursor CURSOR_INSTALLED_EXTENSIONS CURSOR_INSTALL_FAIL
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [ "$(grep -c "code --install-extension" "$STUB_CALLS")" -eq 6 ]
+  [ "$(grep -c "cursor --install-extension" "$STUB_CALLS")" -eq 6 ]
+  [[ "$output" != *"No VS Code installation found"* ]]
+  [[ "$output" != *"No Cursor installation found"* ]]
+}
+
+@test "--ide skip still installs extensions when code is on PATH" {
+  baseline_env
+  make_ide_stub code CODE_INSTALLED_EXTENSIONS CODE_INSTALL_FAIL
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"Checking if VS Code is installed"* ]]
+  [ "$(grep -c "code --install-extension" "$STUB_CALLS")" -eq 6 ]
+}
+
+@test "falls back to the bundled code binary when code is not on PATH" {
+  baseline_env
+  make_ide_stub code CODE_INSTALLED_EXTENSIONS CODE_INSTALL_FAIL
+  local bundled="$APPS_DIR/Visual Studio Code.app/Contents/Resources/app/bin"
+  mkdir -p "$bundled"
+  cp "$TEST_BIN/code" "$bundled/code"
+  chmod +x "$bundled/code"
+  rm "$TEST_BIN/code"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"No VS Code installation found"* ]]
+  [ "$(grep -c "code --install-extension" "$STUB_CALLS")" -eq 6 ]
+  [[ "$output" == *"No Cursor installation found; skipping its extensions."* ]]
+}
+
+@test "reports a failing extension install and a manual follow-up" {
+  baseline_env
+  make_ide_stub code CODE_INSTALLED_EXTENSIONS CODE_INSTALL_FAIL
+  export CODE_INSTALL_FAIL=1
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Failed to install esbenp.prettier-vscode for VS Code."* ]]
+  [[ "$output" == *"Install it manually:"* ]]
+  [[ "$output" == *"code --install-extension esbenp.prettier-vscode"* ]]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" != *"✔ VS Code: esbenp.prettier-vscode"* ]]
+  [ "$(grep -c "code --install-extension" "$STUB_CALLS")" -eq 6 ]
 }
 
 # --- shell setup ----------------------------------------------------------
