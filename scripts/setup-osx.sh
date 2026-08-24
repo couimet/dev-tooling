@@ -14,6 +14,19 @@
 # Major version of Node.js to install and keep current through nvm.
 NODE_MAJOR_VERSION=24
 
+# IDE extensions installed through both the VS Code and Cursor CLIs.
+# The IDs are shared between the two: VS Code Marketplace addresses an
+# extension as publisher.name, Open VSX as publisher/name, but both
+# CLIs accept the dot form, so one list works for both.
+IDE_EXTENSIONS=(
+    esbenp.prettier-vscode
+    dbaeumer.vscode-eslint
+    eamodio.gitlens
+    pflannery.vscode-versionlens
+    bierner.markdown-mermaid
+    couimet.rangelink-vscode-extension
+)
+
 # Base URL the script refreshes its shared helpers from when it runs
 # from a raw pipe instead of a checkout; point it at a fork to test.
 HELPERS_BASE_URL="https://raw.githubusercontent.com/couimet/dev-tooling/main/scripts"
@@ -400,6 +413,71 @@ check_oh_my_zsh() {
     return 0
 }
 
+# Resolves the extension CLI binary for an IDE (vscode or cursor): the
+# command on PATH first, then the binary bundled inside the app so an
+# IDE installed from a Homebrew cask (which does not add the CLI to
+# PATH) is still found. Prints only the resolved path and returns 0, or
+# prints nothing and returns 1 when the IDE is not on disk. APPS_DIR
+# lets tests point the check at a fake Applications directory; real runs
+# keep the default.
+find_extension_cli() {
+    local ide="$1"
+    local cli app_path
+    case "$ide" in
+        vscode)
+            cli="code"
+            app_path="${APPS_DIR:-/Applications}/Visual Studio Code.app/Contents/Resources/app/bin/code"
+            ;;
+        cursor)
+            cli="cursor"
+            app_path="${APPS_DIR:-/Applications}/Cursor.app/Contents/Resources/app/bin/cursor"
+            ;;
+        *) return 1 ;;
+    esac
+    if command -v "$cli" &>/dev/null; then
+        command -v "$cli"
+        return 0
+    fi
+    if [[ -x "$app_path" ]]; then
+        echo "$app_path"
+        return 0
+    fi
+    return 1
+}
+
+# Installs the shared IDE extension list through every IDE found on
+# disk, independent of which IDE the run was asked to install: both a
+# pre-existing IDE and one installed earlier in the same run get the
+# extensions. Each extension is reported in the run summary as present
+# (already installed, from --list-extensions), added, or a manual
+# install follow-up on failure. --install-extension is idempotent, so
+# the already-installed case is reported, not re-installed.
+install_ide_extensions() {
+    local ide display cli installed id
+    for ide in vscode cursor; do
+        if [[ "$ide" == "vscode" ]]; then
+            display="VS Code"
+        else
+            display="Cursor"
+        fi
+        if ! cli="$(find_extension_cli "$ide")"; then
+            report "info" "No ${display} installation found; skipping its extensions."
+            continue
+        fi
+        installed="$("$cli" --list-extensions 2>/dev/null)"
+        for id in "${IDE_EXTENSIONS[@]}"; do
+            if grep -qxF "$id" <<<"$installed"; then
+                note_present "${display}: $id"
+            elif "$cli" --install-extension "$id" &>/dev/null; then
+                note_added "${display}: $id"
+            else
+                report "error" "Failed to install $id for ${display}."
+                note_followup "Install it manually: $cli --install-extension $id"
+            fi
+        done
+    done
+}
+
 # --- Homebrew --------------------------------------------------------------
 
 print_check_message "Homebrew"
@@ -628,6 +706,10 @@ fi
 if [[ "$install_cursor" = true ]]; then
     install_app Cursor Cursor cursor
 fi
+
+# Extensions go to every IDE found on disk, independent of the --ide
+# choice, so both pre-existing and freshly installed IDEs are covered.
+install_ide_extensions
 
 # The presence check is the docker CLI but the install is the cask and
 # the reported version is the GUI app's, so this stays a hybrid block
