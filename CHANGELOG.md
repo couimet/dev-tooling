@@ -8,6 +8,12 @@ This project uses [Calendar Versioning](https://calver.org/) with the format `YY
 
 Entries are organized using [Keep a Changelog](https://keepachangelog.com/) categories: **Added**, **Changed**, **Fixed**, **Removed**. Not every release uses every category; include only the ones that apply.
 
+## 2026.08.24
+
+### Added
+
+- Claude Code added to the tools `setup-osx.sh` installs via the `claude-code` cask, with a `claude` command presence check, granular per-tool feedback, and a manual-install follow-up when the cask install fails. ([issues/10](https://github.com/couimet/dev-tooling/issues/10))
+
 ## 2026.08.19
 
 ### Added

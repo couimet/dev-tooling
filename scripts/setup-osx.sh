@@ -673,6 +673,18 @@ else
     note_present "GitHub CLI (gh) ${CHECKED_VERSION}"
 fi
 
+# The presence check is the claude command but the install is the cask,
+# so this stays a hybrid block rather than install_cmd (which installs
+# a formula) or install_app (which checks /Applications).
+print_check_message "Claude Code"
+if ! check_command claude; then
+    if brew_install --cask claude-code; then
+        note_added "Claude Code $(cmd_version claude)"
+    fi
+else
+    note_present "Claude Code ${CHECKED_VERSION}"
+fi
+
 # Password Manager Selection
 if [[ -n "$ARG_PASSWORD_MANAGER" ]]; then
     apply_password_manager_flag "$ARG_PASSWORD_MANAGER"
