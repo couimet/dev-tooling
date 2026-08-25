@@ -8,6 +8,12 @@ This project uses [Calendar Versioning](https://calver.org/) with the format `YY
 
 Entries are organized using [Keep a Changelog](https://keepachangelog.com/) categories: **Added**, **Changed**, **Fixed**, **Removed**. Not every release uses every category; include only the ones that apply.
 
+## 2026.08.24.2
+
+### Fixed
+
+- setup-osx.sh now installs oh-my-zsh with the installer's `--unattended` flag, so it no longer launches an interactive zsh that hijacks the rest of the run on a fresh machine. ([issues/15](https://github.com/couimet/dev-tooling/issues/15))
+
 ## 2026.08.24.1
 
 ### Added

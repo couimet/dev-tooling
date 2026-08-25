@@ -798,10 +798,11 @@ else
     note_present "zsh as the default shell (${ZSH_VERSION})"
 fi
 
-# Install oh-my-zsh if not present
+# Install oh-my-zsh if not present. --unattended stops the installer's
+# final `exec zsh -l` from replacing this shell with an interactive one.
 print_check_message "oh-my-zsh"
 if ! check_oh_my_zsh; then
-    sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
+    sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
     note_added "oh-my-zsh $(omz_version)"
 else
     note_present "oh-my-zsh $(omz_version)"

@@ -88,7 +88,10 @@ INSTALLER
 )"
     serve ;;
   *ohmyzsh*install.sh*)
-    body="echo 'oh-my-zsh installer ran' > '$HOME/.oh-my-zsh-installed'"
+    # Record the args the fake installer is invoked with: the real
+    # installer's `exec zsh -l` is what hijacks the run, and the script
+    # must pass --unattended to stop it. $@ is written at install time.
+    body="echo 'oh-my-zsh installer ran' > '$HOME/.oh-my-zsh-installed'; printf '%s' \"\$@\" > '$HOME/.oh-my-zsh-args'"
     serve ;;
   *raw.githubusercontent.com/Homebrew/install*)
     body="echo 'homebrew installer ran' > '$HOME/.homebrew-installed'"
