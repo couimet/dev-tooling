@@ -2,8 +2,9 @@
 # shellcheck shell=bash  # linted as bash; zsh-only lines carry their own disables
 
 # Bootstrap script for a macOS development environment.
-# Installs the day-to-day tooling for Node.js and API work: Homebrew,
-# Git, nvm/Node, a handful of applications, and GitHub SSH access.
+# Installs the day-to-day tooling for a development machine: Homebrew,
+# Git, nvm/Node, command-line tools for Kubernetes, Terraform, testing,
+# and scanning, a handful of applications, and GitHub SSH access.
 # Every step checks first, so re-running the script is safe: anything
 # already present is reported as such and nothing is reinstalled. The
 # whole run is mirrored to a timestamped log file in the directory the
@@ -170,6 +171,31 @@ print_check_message() {
     report "info" "Checking if ${tool_name} ${display_text}..."
 }
 
+# Picks the version out of a version probe's output. Tools answering a
+# `version` subcommand often print a header line first: velero leads with
+# "Client:" and puts "Version: v1.18.2" on the line below, so taking the
+# first line would record the header and throw the version away. Takes
+# the first line carrying something version-shaped instead, trims the
+# indentation such lines usually have, and falls back to the first line
+# when nothing matches.
+first_version_line() {
+    awk '
+        /[0-9]+\.[0-9]+/ {
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "")
+            print
+            found = 1
+            exit
+        }
+        NR == 1 { first = $0 }
+        END {
+            if (!found) {
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", first)
+                print first
+            }
+        }
+    '
+}
+
 # Utility function to check if a command exists.
 # `command -v` is used instead of a plain -x test because it also finds
 # shell functions such as nvm, which live in the shell environment and
@@ -178,8 +204,13 @@ print_check_message() {
 # 1 when it is missing so the caller can run the install step.
 # The version it found is left in CHECKED_VERSION so the caller can
 # carry it into the run summary.
+# The optional second parameter is the argument list to ask for the
+# version, given as a single string (for example "version --client").
+# When set it replaces the --version / -v / -V ladder, which matters for
+# tools whose bare version subcommand reaches for a cluster or a server.
+# When absent the ladder is used, so existing callers are unaffected.
 check_command() {
-    local cmd="$1"
+    local cmd="$1" version_argv="${2:-}"
     CHECKED_VERSION=""
     # FORCE_COMMAND_MISSING (test-only): a space-separated list of command
     # names to treat as absent so the install paths can be exercised on
@@ -194,13 +225,25 @@ check_command() {
     fi
 
     local version=""
-    # Try the common version flag patterns.
-    if $cmd --version &>/dev/null; then
-        version="$($cmd --version | head -n 1)"
-    elif $cmd -v &>/dev/null; then
-        version="$($cmd -v | head -n 1)"
-    elif $cmd -V &>/dev/null; then
-        version="$($cmd -V | head -n 1)"
+    if [[ -n "$version_argv" ]]; then
+        # zsh does not word-split an unquoted $var, so ${=version_argv}
+        # is what turns "version --client" into two arguments instead of
+        # one; without it every multi-word probe would fail silently and
+        # report "unknown".
+        # shellcheck disable=SC2086  # word splitting is the intent; ${=var} forces it in zsh
+        if $cmd ${=version_argv} &>/dev/null; then
+            # shellcheck disable=SC2086  # word splitting is the intent; ${=var} forces it in zsh
+            version="$($cmd ${=version_argv} | first_version_line)"
+        fi
+    else
+        # Try the common version flag patterns.
+        if $cmd --version &>/dev/null; then
+            version="$($cmd --version | head -n 1)"
+        elif $cmd -v &>/dev/null; then
+            version="$($cmd -v | head -n 1)"
+        elif $cmd -V &>/dev/null; then
+            version="$($cmd -V | head -n 1)"
+        fi
     fi
     CHECKED_VERSION="${version:-unknown}"
 
@@ -253,10 +296,22 @@ app_version() {
 }
 
 # First line of the version output of an installed command.
+# The optional second parameter is the argument list to ask for the
+# version, in the same single-string form check_command takes (for
+# example "version --client"); without it the command is asked for
+# --version.
 # Prints "unknown" when the command is missing or silent.
 cmd_version() {
+    local cmd="$1" version_argv="${2:-}"
     local version
-    version="$("$1" --version 2>/dev/null | head -n 1)"
+    if [[ -n "$version_argv" ]]; then
+        # As in check_command, ${=version_argv} is what makes zsh split a
+        # multi-word probe into separate arguments.
+        # shellcheck disable=SC2086  # word splitting is the intent; ${=var} forces it in zsh
+        version="$("$cmd" ${=version_argv} 2>/dev/null | first_version_line)"
+    else
+        version="$("$cmd" --version 2>/dev/null | head -n 1)"
+    fi
     [[ -n "$version" ]] && echo "$version" || echo "unknown"
 }
 
@@ -269,6 +324,24 @@ brew_install() {
     fi
     report "error" "brew install $* failed."
     note_followup "Install it manually: brew install $*"
+    return 1
+}
+
+# Adds a Homebrew tap unless it is already there. `brew tap` with no
+# arguments lists the tapped repos, so an already-tapped machine makes no
+# network call. Reports and leaves a manual follow-up on failure, the way
+# brew_install does, so the caller can skip an install that could not
+# have resolved anyway.
+brew_tap() {
+    local tap="$1"
+    if brew tap | grep -Fxq "$tap"; then
+        return 0
+    fi
+    if brew tap "$tap"; then
+        return 0
+    fi
+    report "error" "brew tap ${tap} failed."
+    note_followup "Add the tap manually: brew tap ${tap}"
     return 1
 }
 
@@ -291,13 +364,85 @@ install_app() {
 # Same as install_app for brew formulae that expose a command. The
 # display name and formula default to the command name, so a plain
 # "install_cmd jq" covers the common case.
+# The first three arguments are positional -- command, display, formula --
+# and parsing stops at the first option, so a call can pass one, two, or
+# three of them. These named options may follow and win over them:
+#   --display <text>      what the run summary calls the tool
+#   --formula <name>      the Homebrew formula to install
+#   --version-cmd <argv>  argument list for the version probe, as a
+#                         single string (see check_command)
+#   --tap <tap>           tap to add before installing, and only when the
+#                         command turns out to be missing
 install_cmd() {
-    local command="$1"
-    local display="${2:-$command}" formula="${3:-$command}"
+    local command="" display="" formula="" version_argv="" tap=""
+    if [[ $# -gt 0 && "$1" != --* ]]; then
+        command="$1"
+        shift
+    fi
+    if [[ $# -gt 0 && "$1" != --* ]]; then
+        display="$1"
+        shift
+    fi
+    if [[ $# -gt 0 && "$1" != --* ]]; then
+        formula="$1"
+        shift
+    fi
+    while [[ $# -gt 0 ]]; do
+        # Every option below takes a value. Without this guard a missing
+        # one leaves $# at 1, "shift 2" then refuses to shift at all, and
+        # the loop re-matches the same option forever. Treated like the
+        # unknown-option case: one tool lost, the run carries on.
+        case "$1" in
+            --display|--formula|--version-cmd|--tap)
+                if (( $# < 2 )); then
+                    report "error" "install_cmd ${command}: ${1} requires a value."
+                    note_followup "Install it manually: brew install ${formula:-$command}"
+                    return 1
+                fi
+                ;;
+        esac
+        case "$1" in
+            --display)
+                display="$2"
+                shift 2
+                ;;
+            --formula)
+                formula="$2"
+                shift 2
+                ;;
+            --version-cmd)
+                version_argv="$2"
+                shift 2
+                ;;
+            --tap)
+                tap="$2"
+                shift 2
+                ;;
+            *)
+                # An authoring mistake rather than a machine problem, so
+                # give up on this one tool and keep going: silently
+                # ignoring it could install the wrong formula, and
+                # exiting would let one typo abort the whole run.
+                report "error" "install_cmd ${command}: unknown option: $1"
+                note_followup "Install it manually: brew install ${formula:-$command}"
+                return 1
+                ;;
+        esac
+    done
+    display="${display:-$command}"
+    formula="${formula:-$command}"
+
     print_check_message "$display"
-    if ! check_command "$command"; then
+    if ! check_command "$command" "$version_argv"; then
+        # The tap is only worth adding when something has to be
+        # installed. A failed tap skips the install too, since a formula
+        # from a tap that is not there cannot resolve and trying anyway
+        # would just stack a second, more confusing error on top.
+        if [[ -n "$tap" ]] && ! brew_tap "$tap"; then
+            return 1
+        fi
         if brew_install "$formula"; then
-            note_added "$display $(cmd_version "$command")"
+            note_added "$display $(cmd_version "$command" "$version_argv")"
         fi
     else
         note_present "$display ${CHECKED_VERSION}"
@@ -740,6 +885,34 @@ install_app Signal Signal signal
 install_app WhatsApp WhatsApp whatsapp
 
 install_cmd jq
+
+# The test runner this repo's own suite runs under. The formula is
+# bats-core; the command it installs is plain "bats".
+install_cmd bats --formula bats-core
+
+# Kubernetes tooling. The client-scoped version probes are not a
+# nicety: a bare "velero version" or "argocd version" reaches out for a
+# server, so an unqualified probe would stall or fail partway through a
+# run on a machine with no kubeconfig.
+install_cmd kubectl --formula kubernetes-cli --version-cmd "version --client"
+install_cmd helm --version-cmd "version --short"
+install_cmd kustomize --version-cmd version
+install_cmd argocd --version-cmd "version --client"
+install_cmd velero --version-cmd "version --client-only"
+
+# Data wrangling and scanning
+install_cmd yq
+install_cmd pre-commit
+install_cmd trivy
+
+# terraform and tflint have both left homebrew-core, so a bare
+# "brew install terraform" no longer resolves. Each now lives in its
+# own project's tap, which install_cmd adds only when the command turns
+# out to be missing. The tap-qualified formula names below are required,
+# not decoration: shortening them back to bare names breaks the install.
+install_cmd terraform --tap hashicorp/tap --formula hashicorp/tap/terraform
+install_cmd tflint --tap terraform-linters/tap --formula terraform-linters/tap/tflint
+install_cmd terraform-docs
 
 # GitHub CLI
 print_check_message "GitHub CLI"

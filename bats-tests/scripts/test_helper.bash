@@ -39,6 +39,21 @@ setup_common() {
   make_tool jq "jq-1.7.1"
   make_tool gh "gh version 2.55.0 (2024-08-01)"
   make_tool claude "2.1.211 (Claude Code)"
+  # The Kubernetes clients report their version through a `version`
+  # subcommand rather than a `--version` flag; make_tool's stubs echo the
+  # same output for any argv, so those probes are satisfied too.
+  make_tool kubectl "Client Version: v1.36.4"
+  make_tool helm "v4.2.4+g1a5686c"
+  make_tool kustomize "v5.8.1"
+  make_tool argocd "argocd: v3.5.1+c6b4b7d"
+  make_tool velero "Version: v1.18.2"
+  make_tool yq "yq (https://github.com/mikefarah/yq/) version v4.53.6"
+  make_tool pre-commit "pre-commit 4.6.2"
+  make_tool trivy "Version: 0.74.0"
+  make_tool terraform "Terraform v1.14.2"
+  make_tool tflint "TFLint version 0.59.0"
+  make_tool terraform-docs "terraform-docs version v0.24.0 e0d2a3a darwin/arm64"
+  make_tool bats "Bats 1.14.0"
   cat > "$TEST_BIN/node" <<'EOF'
 #!/bin/bash
 echo "${NODE_VERSION_OUTPUT:-v24.1.0}"

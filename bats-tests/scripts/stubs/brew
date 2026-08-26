@@ -3,6 +3,7 @@
 # casks appear installed:
 #   BREW_HAS_GIT=1 / BREW_GIT_VERSION=x.y.z
 #   BREW_HAS_PNPM=1
+#   BREW_TAPS="owner/tap other/tap" / BREW_TAP_FAIL=1
 echo "brew $*" >> "$STUB_CALLS"
 case "$1" in
   --version)
@@ -34,6 +35,17 @@ case "$1" in
       exit 1
     fi
     exit 1 ;;
+  tap)
+    # With no further arguments, report the taps named by BREW_TAPS
+    # (space-separated, none by default) the way `brew tap` lists them.
+    if [[ $# -eq 1 ]]; then
+      [[ -n "$BREW_TAPS" ]] && tr ' ' '\n' <<< "$BREW_TAPS"
+      exit 0
+    fi
+    # BREW_TAP_FAIL=1 simulates a failed tap so the scripts' error and
+    # follow-up paths can be exercised.
+    [[ "$BREW_TAP_FAIL" == "1" ]] && exit 1
+    exit 0 ;;
   *)
     exit 0 ;;
 esac
