@@ -8,6 +8,13 @@ This project uses [Calendar Versioning](https://calver.org/) with the format `YY
 
 Entries are organized using [Keep a Changelog](https://keepachangelog.com/) categories: **Added**, **Changed**, **Fixed**, **Removed**. Not every release uses every category; include only the ones that apply.
 
+## 2026.08.26.1
+
+### Added
+
+- `setup-osx.sh` now installs the 1Password CLI (`op`, from the `1password-cli` cask) on every run, independently of the `--password-manager` choice, which continues to govern only the GUI password apps. The CLI is what automation and scripts reach for, so it is installed as a default tool rather than something you opt into. ([issues/25](https://github.com/couimet/dev-tooling/issues/25))
+- CLIs distributed as Homebrew casks are now installed through the same path as every other command-line tool, so they report the same "Already present" and version lines in the run summary and produce the same manual-install follow-up when the cask install fails. Claude Code and Docker, which each previously had their own hand-written install block, now go through that path too; Docker keeps reporting the version of its GUI app on a fresh install, as it always has. ([issues/25](https://github.com/couimet/dev-tooling/issues/25))
+
 ## 2026.08.26
 
 ### Added

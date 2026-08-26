@@ -39,6 +39,7 @@ setup_common() {
   make_tool jq "jq-1.7.1"
   make_tool gh "gh version 2.55.0 (2024-08-01)"
   make_tool claude "2.1.211 (Claude Code)"
+  make_tool op "2.39.0"
   # The Kubernetes clients report their version through a `version`
   # subcommand rather than a `--version` flag; make_tool's stubs echo the
   # same output for any argv, so those probes are satisfied too.

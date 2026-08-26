@@ -369,12 +369,20 @@ install_app() {
 # three of them. These named options may follow and win over them:
 #   --display <text>      what the run summary calls the tool
 #   --formula <name>      the Homebrew formula to install
+#   --cask <name>         the Homebrew cask to install instead of a
+#                         formula, for a cask whose artifact is a
+#                         command (mutually exclusive with --formula)
 #   --version-cmd <argv>  argument list for the version probe, as a
 #                         single string (see check_command)
+#   --version-from-app <AppName>
+#                         read the version a fresh install reports from
+#                         that .app bundle instead of from the command,
+#                         for a cask that installs a GUI app whose own
+#                         version is the one worth recording
 #   --tap <tap>           tap to add before installing, and only when the
 #                         command turns out to be missing
 install_cmd() {
-    local command="" display="" formula="" version_argv="" tap=""
+    local command="" display="" formula="" cask="" version_argv="" tap="" version_from_app=""
     if [[ $# -gt 0 && "$1" != --* ]]; then
         command="$1"
         shift
@@ -393,10 +401,17 @@ install_cmd() {
         # the loop re-matches the same option forever. Treated like the
         # unknown-option case: one tool lost, the run carries on.
         case "$1" in
-            --display|--formula|--version-cmd|--tap)
+            --display|--formula|--cask|--version-cmd|--version-from-app|--tap)
                 if (( $# < 2 )); then
                     report "error" "install_cmd ${command}: ${1} requires a value."
-                    note_followup "Install it manually: brew install ${formula:-$command}"
+                    # a cask-only call has no formula to fall back on, so
+                    # the hint has to name whichever of the two the call
+                    # got as far as setting.
+                    if [[ -n "$cask" ]]; then
+                        note_followup "Install it manually: brew install --cask ${cask}"
+                    else
+                        note_followup "Install it manually: brew install ${formula:-$command}"
+                    fi
                     return 1
                 fi
                 ;;
@@ -410,8 +425,16 @@ install_cmd() {
                 formula="$2"
                 shift 2
                 ;;
+            --cask)
+                cask="$2"
+                shift 2
+                ;;
             --version-cmd)
                 version_argv="$2"
+                shift 2
+                ;;
+            --version-from-app)
+                version_from_app="$2"
                 shift 2
                 ;;
             --tap)
@@ -429,8 +452,22 @@ install_cmd() {
                 ;;
         esac
     done
+    # --formula and --cask name two different packages installed through
+    # two different brew subcommands, so a call that passes both never
+    # says which one it meant. Same treatment as an unknown option: lose
+    # this one tool, keep the run going.
+    if [[ -n "$formula" && -n "$cask" ]]; then
+        report "error" "install_cmd ${command}: --formula and --cask are mutually exclusive."
+        note_followup "Install it manually: brew install ${formula:-$command}"
+        return 1
+    fi
     display="${display:-$command}"
-    formula="${formula:-$command}"
+    # only a formula defaults to the command name. Defaulting one in for
+    # a cask-only call would hand brew_install a package name nobody
+    # asked for on top of the cask that was.
+    if [[ -z "$cask" ]]; then
+        formula="${formula:-$command}"
+    fi
 
     print_check_message "$display"
     if ! check_command "$command" "$version_argv"; then
@@ -441,8 +478,26 @@ install_cmd() {
         if [[ -n "$tap" ]] && ! brew_tap "$tap"; then
             return 1
         fi
-        if brew_install "$formula"; then
-            note_added "$display $(cmd_version "$command" "$version_argv")"
+        # a cask and a formula install through different brew
+        # subcommands, and exactly one of the two is set by this point.
+        # brew_install forwards "$@", so the --cask form carries into its
+        # failure message and manual-install follow-up on its own.
+        local -a install_args
+        if [[ -n "$cask" ]]; then
+            install_args=(--cask "$cask")
+        else
+            install_args=("$formula")
+        fi
+        if brew_install "${install_args[@]}"; then
+            # A cask that installs a GUI app leaves two different
+            # versions on the machine: the bundled command's and the
+            # app's. --version-from-app picks the app's, which is the one
+            # that matches what the cask just put in /Applications.
+            if [[ -n "$version_from_app" ]]; then
+                note_added "$display $(app_version "$version_from_app")"
+            else
+                note_added "$display $(cmd_version "$command" "$version_argv")"
+            fi
         fi
     else
         note_present "$display ${CHECKED_VERSION}"
@@ -856,17 +911,10 @@ fi
 # choice, so both pre-existing and freshly installed IDEs are covered.
 install_ide_extensions
 
-# The presence check is the docker CLI but the install is the cask and
-# the reported version is the GUI app's, so this stays a hybrid block
-# rather than install_app or install_cmd.
-print_check_message "Docker"
-if ! check_command docker; then
-    if brew_install --cask docker; then
-        note_added "Docker $(app_version Docker)"
-    fi
-else
-    note_present "Docker ${CHECKED_VERSION}"
-fi
+# The presence check is the docker CLI but the install is the cask, and
+# the version a fresh install reports is the GUI app's rather than the
+# CLI's, which is what --version-from-app is for.
+install_cmd docker Docker --cask docker --version-from-app Docker
 
 install_cmd docker-compose
 
@@ -928,17 +976,13 @@ else
     note_present "GitHub CLI (gh) ${CHECKED_VERSION}"
 fi
 
-# The presence check is the claude command but the install is the cask,
-# so this stays a hybrid block rather than install_cmd (which installs
-# a formula) or install_app (which checks /Applications).
-print_check_message "Claude Code"
-if ! check_command claude; then
-    if brew_install --cask claude-code; then
-        note_added "Claude Code $(cmd_version claude)"
-    fi
-else
-    note_present "Claude Code ${CHECKED_VERSION}"
-fi
+install_cmd claude "Claude Code" --cask claude-code
+
+# The 1Password CLI goes on every machine, independent of the
+# --password-manager choice below: that choice is about the GUI apps,
+# and scripts reaching for "op" should not have to care which one of
+# them a given machine happens to have.
+install_cmd op "1Password CLI" --cask 1password-cli
 
 # Password Manager Selection
 if [[ -n "$ARG_PASSWORD_MANAGER" ]]; then
