@@ -16,7 +16,7 @@ setup() {
 @test "VERSION_UTILS is defined and matches the CalVer@SHA format" {
   run zsh -c "source '$SCRIPT_DIR/utils.sh'; echo \"\$VERSION_UTILS\""
   [ "$status" -eq 0 ]
-  [[ "$output" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}@[0-9a-f]{7,40}$ ]]
+  [[ "$output" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?@[0-9a-f]{7,40}$ ]]
 }
 
 # --- report ---------------------------------------------------------------
