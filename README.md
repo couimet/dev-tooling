@@ -6,7 +6,7 @@ This repo contains a collection of tools/snippets that I've written (or _borrowe
 
 ### `setup-osx.sh`
 
-[This script](./scripts/setup-osx.sh) is an opinionated macOS dev setup focused on `Node.js` and API work, plus browser and communication apps. It is safe to re-run: every step is idempotent, so re-running only installs what is still missing.
+[This script](./scripts/setup-osx.sh) is an opinionated macOS development machine setup: Homebrew, Git and GitHub SSH, `nvm` and `Node.js`, a broad set of command-line tools, and browser and communication apps. It is safe to re-run: every step is idempotent, so re-running only installs what is still missing.
 
 The run ends with a combined summary, and the full run is captured to a timestamped log, `setup-osx-YYYY-MM-DD-HH-MM-SS.log`, written into the directory where the script is invoked.
 
@@ -46,7 +46,7 @@ The [stamp-version-calver workflow](./.github/workflows/stamp-version-calver.yml
 
 ## Frequently Used Applications
 
-Once you have Homebrew installed (or better yet, run the `setup-osx.sh` script), you can install the following SQL and NoSQL tools. The script covers the browser and communication apps.
+Once you have Homebrew installed (or better yet, run the `setup-osx.sh` script), you can install the following SQL and NoSQL tools. The script installs neither one, so pick whichever you prefer.
 
 ### SQL Tool
 

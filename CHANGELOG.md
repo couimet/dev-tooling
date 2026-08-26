@@ -8,6 +8,13 @@ This project uses [Calendar Versioning](https://calver.org/) with the format `YY
 
 Entries are organized using [Keep a Changelog](https://keepachangelog.com/) categories: **Added**, **Changed**, **Fixed**, **Removed**. Not every release uses every category; include only the ones that apply.
 
+## 2026.08.26
+
+### Added
+
+- `setup-osx.sh` now installs a batch of Kubernetes, Terraform, testing, and scanning CLIs alongside the existing tooling: kubectl, helm, kustomize, argocd, velero, yq, pre-commit, trivy, terraform, tflint, terraform-docs, and bats (the `bats-core` formula), which the repo's own test suite runs under. terraform and tflint have left homebrew-core, so they are installed from their projects' own taps (`hashicorp/tap` and `terraform-linters/tap`), which the script adds only when the command is actually missing; note that terraform ships under the Business Source License. ([issues/23](https://github.com/couimet/dev-tooling/issues/23))
+- The run summary now reports real versions for tools that expose their version through a `version` subcommand rather than a `--version` flag (kubectl, helm, kustomize, argocd, velero), so those lines no longer read "unknown". The client-scoped form is used where one exists, so the check never waits on a cluster or a server. ([issues/23](https://github.com/couimet/dev-tooling/issues/23))
+
 ## 2026.08.24.2
 
 ### Fixed

@@ -604,11 +604,27 @@ EOF
   [[ "$output" == *"jq jq-1.7.1"* ]]
   [[ "$output" == *"GitHub CLI (gh) gh version 2.55.0"* ]]
   [[ "$output" == *"Claude Code 2.1.211 (Claude Code)"* ]]
+  [[ "$output" == *"bats Bats 1.14.0"* ]]
+  # Kubernetes clients: the first three answer a version subcommand, so
+  # these lines also prove the probes reach their tools.
+  [[ "$output" == *"kubectl Client Version: v1.36.4"* ]]
+  [[ "$output" == *"helm v4.2.4+g1a5686c"* ]]
+  [[ "$output" == *"kustomize v5.8.1"* ]]
+  [[ "$output" == *"argocd argocd: v3.5.1+c6b4b7d"* ]]
+  [[ "$output" == *"velero Version: v1.18.2"* ]]
+  # Data wrangling and scanning
+  [[ "$output" == *"yq yq (https://github.com/mikefarah/yq/) version v4.53.6"* ]]
+  [[ "$output" == *"pre-commit pre-commit 4.6.2"* ]]
+  [[ "$output" == *"trivy Version: 0.74.0"* ]]
+  # Terraform tooling
+  [[ "$output" == *"terraform Terraform v1.14.2"* ]]
+  [[ "$output" == *"tflint TFLint version 0.59.0"* ]]
+  [[ "$output" == *"terraform-docs terraform-docs version v0.24.0"* ]]
 }
 
 @test "missing CLIs are installed and gh gets the auth follow-up" {
   baseline_env
-  export FORCE_COMMAND_MISSING="docker-compose aws jq gh claude"
+  export FORCE_COMMAND_MISSING="docker-compose aws jq gh claude bats kubectl helm kustomize argocd velero yq pre-commit trivy terraform tflint terraform-docs"
   run zsh "$OSX" --ide skip --password-manager skip
   [ "$status" -eq 0 ]
   local clean; clean="$(plain "$output")"
@@ -618,6 +634,23 @@ EOF
   [[ "$clean" == *"✔ GitHub CLI (gh)"* ]]
   [[ "$clean" == *"✔ Claude Code"* ]]
   [[ "$output" == *"Run 'gh auth login'"* ]]
+  # The versions come from the post-install probe, so the same lines
+  # cover the probe on the install path.
+  [[ "$clean" == *"✔ kubectl Client Version: v1.36.4"* ]]
+  [[ "$clean" == *"✔ helm v4.2.4+g1a5686c"* ]]
+  [[ "$clean" == *"✔ kustomize v5.8.1"* ]]
+  [[ "$clean" == *"✔ argocd argocd: v3.5.1+c6b4b7d"* ]]
+  [[ "$clean" == *"✔ velero Version: v1.18.2"* ]]
+  [[ "$clean" == *"✔ yq yq ("* ]]
+  [[ "$clean" == *"✔ pre-commit pre-commit 4.6.2"* ]]
+  [[ "$clean" == *"✔ trivy Version: 0.74.0"* ]]
+  [[ "$clean" == *"✔ terraform Terraform v1.14.2"* ]]
+  [[ "$clean" == *"✔ tflint TFLint version 0.59.0"* ]]
+  [[ "$clean" == *"✔ terraform-docs terraform-docs version v0.24.0"* ]]
+  [[ "$clean" == *"✔ bats Bats 1.14.0"* ]]
+  # kubectl and bats have formula names that differ from their commands.
+  grep -qF "brew install kubernetes-cli" "$STUB_CALLS"
+  grep -qF "brew install bats-core" "$STUB_CALLS"
 }
 
 @test "reports a follow-up when the claude-code cask install fails" {
@@ -695,6 +728,185 @@ EOF
   [ "$status" -eq 0 ]
   local clean; clean="$(plain "$output")"
   [[ "$clean" == *"✔ docker-compose unknown"* ]]
+}
+
+# --- version probes -------------------------------------------------------
+
+@test "a version probe reports the version from its own subcommand" {
+  baseline_env
+  # --version answers with something else entirely, so a summary line
+  # carrying the subcommand's output can only have come from the probe.
+  cat > "$TEST_BIN/kubectl" <<'EOF'
+#!/bin/bash
+if [[ "$1" == "version" && "$2" == "--client" ]]; then
+  echo "Client Version: v1.36.4"
+  exit 0
+fi
+echo "ladder output: v0.0.0"
+EOF
+  chmod +x "$TEST_BIN/kubectl"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"kubectl Client Version: v1.36.4"* ]]
+  [[ "$output" != *"ladder output"* ]]
+}
+
+@test "a multi-word version probe reaches the tool as separate arguments" {
+  baseline_env
+  # zsh does not word-split an unquoted $var, so a probe forwarded as a
+  # single string would arrive as one argument and the probe would fail
+  # silently. The stub records its own argv so the two cases are
+  # distinguishable from the outside.
+  cat > "$TEST_BIN/kubectl" <<'EOF'
+#!/bin/bash
+echo "kubectl argc=$# argv1=[$1] argv2=[$2]" >> "$STUB_CALLS"
+echo "Client Version: v1.36.4"
+EOF
+  chmod +x "$TEST_BIN/kubectl"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  grep -qF "kubectl argc=2 argv1=[version] argv2=[--client]" "$STUB_CALLS"
+  [ "$(grep -cF "argv1=[version --client]" "$STUB_CALLS")" -eq 0 ]
+  [ "$(grep -cF "kubectl argc=1" "$STUB_CALLS")" -eq 0 ]
+  [[ "$output" == *"kubectl Client Version: v1.36.4"* ]]
+}
+
+@test "a failing version probe reports an unknown version" {
+  baseline_env
+  # The probe fails and only --version answers; the probe replaces the
+  # --version / -v / -V ladder rather than falling back to it, so the
+  # version stays unknown.
+  cat > "$TEST_BIN/helm" <<'EOF'
+#!/bin/bash
+case "$1" in
+  --version) echo "v4.2.4+g1a5686c" ;;
+  *) exit 1 ;;
+esac
+EOF
+  chmod +x "$TEST_BIN/helm"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" == *"- helm unknown"* ]]
+  [[ "$clean" != *"helm v4.2.4+g1a5686c"* ]]
+}
+
+@test "a version probe picks the version off a later output line" {
+  baseline_env
+  # velero leads with a "Client:" header and puts the version on the
+  # next, tab-indented line, so the first line is not the version.
+  cat > "$TEST_BIN/velero" <<'EOF'
+#!/bin/bash
+printf 'Client:\n\tVersion: v1.18.2\n\tGit commit: 1234567\n'
+EOF
+  chmod +x "$TEST_BIN/velero"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" == *"- velero Version: v1.18.2"* ]]
+  [[ "$clean" != *"- velero Client:"* ]]
+}
+
+@test "the legacy positional install_cmd arguments still resolve the formula" {
+  baseline_env
+  export FORCE_COMMAND_MISSING="aws jq"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Checking if AWS CLI is installed"* ]]
+  grep -qF "brew install awscli" "$STUB_CALLS"
+  grep -qF "brew install jq" "$STUB_CALLS"
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" == *"✔ AWS CLI aws-cli/2.17.30"* ]]
+  [[ "$clean" == *"✔ jq jq-1.7.1"* ]]
+}
+
+# add_install_cmd_call <line> — inserts an extra install_cmd call into
+# the sandboxed copy of the script, above the jq check, so an argument
+# pattern with no production call site can still be exercised through a
+# real run.
+add_install_cmd_call() {
+  local src="$TEST_SCRIPTS/setup-osx.sh"
+  awk -v line="$1" '$0 == "install_cmd jq" { print line } { print }' "$src" > "$src.patched"
+  mv "$src.patched" "$src"
+  chmod +x "$src"
+}
+
+@test "an unknown install_cmd option is reported without aborting the run" {
+  baseline_env
+  add_install_cmd_call 'install_cmd nosuchtool --bogus-option value'
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"install_cmd nosuchtool: unknown option: --bogus-option"* ]]
+  [[ "$output" == *"Install it manually: brew install nosuchtool"* ]]
+  # The typo costs one tool, not the run: the steps after it still happen.
+  [[ "$output" == *"Checking if jq is installed"* ]]
+  [[ "$output" == *"════ Run summary ════"* ]]
+  ! grep -qF "brew install nosuchtool" "$STUB_CALLS"
+}
+
+@test "an install_cmd option with no value is reported without hanging" {
+  baseline_env
+  # Without the value guard this spins forever on "shift count must be
+  # <= $#", so a clean exit is itself part of what is being asserted.
+  add_install_cmd_call 'install_cmd nosuchtool --formula'
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"install_cmd nosuchtool: --formula requires a value."* ]]
+  [[ "$output" == *"Install it manually: brew install nosuchtool"* ]]
+  [[ "$output" == *"Checking if jq is installed"* ]]
+  [[ "$output" == *"════ Run summary ════"* ]]
+  [ "$(grep -cF "brew install nosuchtool" "$STUB_CALLS")" -eq 0 ]
+}
+
+# --- taps -----------------------------------------------------------------
+
+@test "a missing tool from a tap is tapped before it is installed" {
+  baseline_env
+  export FORCE_COMMAND_MISSING="terraform"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  grep -qF "brew tap hashicorp/tap" "$STUB_CALLS"
+  grep -qF "brew install hashicorp/tap/terraform" "$STUB_CALLS"
+  local tap_line install_line
+  tap_line="$(grep -nF "brew tap hashicorp/tap" "$STUB_CALLS" | head -1 | cut -d: -f1)"
+  install_line="$(grep -nF "brew install hashicorp/tap/terraform" "$STUB_CALLS" | head -1 | cut -d: -f1)"
+  [ "$tap_line" -lt "$install_line" ]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" == *"✔ terraform Terraform v1.14.2"* ]]
+}
+
+@test "a tool that is already present is never tapped" {
+  baseline_env
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  # Nothing is missing, so a re-run on a provisioned machine makes no
+  # tap call at all -- not even the listing that checks for one.
+  ! grep -q "brew tap" "$STUB_CALLS"
+}
+
+@test "a tap that is already there is not added again" {
+  baseline_env
+  export FORCE_COMMAND_MISSING="terraform" BREW_TAPS="hashicorp/tap"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  grep -qF "brew install hashicorp/tap/terraform" "$STUB_CALLS"
+  [ "$(grep -cF "brew tap hashicorp/tap" "$STUB_CALLS")" -eq 0 ]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" == *"✔ terraform Terraform v1.14.2"* ]]
+}
+
+@test "a failing tap skips the install and leaves a follow-up" {
+  baseline_env
+  export FORCE_COMMAND_MISSING="terraform" BREW_TAP_FAIL=1
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"brew tap hashicorp/tap failed."* ]]
+  [[ "$output" == *"Add the tap manually: brew tap hashicorp/tap"* ]]
+  # A formula from a tap that is not there cannot resolve, so the
+  # install is not attempted and nothing is recorded as installed.
+  [ "$(grep -cF "brew install hashicorp/tap/terraform" "$STUB_CALLS")" -eq 0 ]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" != *"✔ terraform"* ]]
 }
 
 # --- IDE extensions ------------------------------------------------------
