@@ -868,6 +868,9 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" == *"→ version: master (abc1234)"* ]]
   [[ "$output" == *"oh-my-zsh master (abc1234)"* ]]
+  [ ! -f "$HOME/.oh-my-zsh-installed" ]
+  run grep -q "ohmyzsh/ohmyzsh/master/tools/install.sh" "$STUB_CALLS"
+  [ "$status" -eq 1 ]
 }
 
 @test "installs oh-my-zsh when missing" {
@@ -877,6 +880,14 @@ EOF
   [ -f "$HOME/.oh-my-zsh-installed" ]
   local clean; clean="$(plain "$output")"
   [[ "$clean" == *"✔ oh-my-zsh"* ]]
+}
+
+@test "installs oh-my-zsh unattended so it cannot hijack the run" {
+  baseline_env
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [ -f "$HOME/.oh-my-zsh-installed" ]
+  [ "$(cat "$HOME/.oh-my-zsh-args")" = "--unattended" ]
 }
 
 @test "oh-my-zsh without a git checkout reports an unknown version" {
@@ -906,11 +917,11 @@ EOF
   run zsh "$OSX" --ide skip --password-manager skip
   [ "$status" -eq 0 ]
   local clean; clean="$(plain "$output")"
-  [[ "$clean" =~ dev-tooling\ setup\ scripts\ [0-9]{4}\.[0-9]{2}\.[0-9]{2}@[0-9a-f]{7,40} ]]
+  [[ "$clean" =~ dev-tooling\ setup\ scripts\ [0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?@[0-9a-f]{7,40} ]]
 }
 
 @test "--version prints the stamped version and exits 0" {
   run zsh "$OSX" --version
   [ "$status" -eq 0 ]
-  [[ "$output" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}@[0-9a-f]{7,40}$ ]]
+  [[ "$output" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?@[0-9a-f]{7,40}$ ]]
 }
