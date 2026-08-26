@@ -12,7 +12,7 @@ The run ends with a combined summary, and the full run is captured to a timestam
 
 For an unattended run, pass `--ide <vscode|cursor|both|skip>` and `--password-manager <macpass|1password|both|skip>`; without the flags the script prompts for those choices.
 
-The script also installs the recommended IDE extensions into every IDE it finds on disk (VS Code and Cursor), independently of the `--ide` choice.
+The script also installs the recommended IDE extensions into every IDE it finds on disk (VS Code and Cursor), independently of the `--ide` choice. Likewise, the 1Password CLI (`op`) is installed on every run, independently of the `--password-manager` choice, which covers the GUI apps only.
 
 #### Quick Install
 

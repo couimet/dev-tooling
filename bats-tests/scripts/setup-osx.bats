@@ -604,6 +604,7 @@ EOF
   [[ "$output" == *"jq jq-1.7.1"* ]]
   [[ "$output" == *"GitHub CLI (gh) gh version 2.55.0"* ]]
   [[ "$output" == *"Claude Code 2.1.211 (Claude Code)"* ]]
+  [[ "$output" == *"1Password CLI 2.39.0"* ]]
   [[ "$output" == *"bats Bats 1.14.0"* ]]
   # Kubernetes clients: the first three answer a version subcommand, so
   # these lines also prove the probes reach their tools.
@@ -624,7 +625,7 @@ EOF
 
 @test "missing CLIs are installed and gh gets the auth follow-up" {
   baseline_env
-  export FORCE_COMMAND_MISSING="docker-compose aws jq gh claude bats kubectl helm kustomize argocd velero yq pre-commit trivy terraform tflint terraform-docs"
+  export FORCE_COMMAND_MISSING="docker-compose aws jq gh claude op bats kubectl helm kustomize argocd velero yq pre-commit trivy terraform tflint terraform-docs"
   run zsh "$OSX" --ide skip --password-manager skip
   [ "$status" -eq 0 ]
   local clean; clean="$(plain "$output")"
@@ -633,6 +634,7 @@ EOF
   [[ "$clean" == *"✔ jq"* ]]
   [[ "$clean" == *"✔ GitHub CLI (gh)"* ]]
   [[ "$clean" == *"✔ Claude Code"* ]]
+  [[ "$clean" == *"✔ 1Password CLI"* ]]
   [[ "$output" == *"Run 'gh auth login'"* ]]
   # The versions come from the post-install probe, so the same lines
   # cover the probe on the install path.
@@ -651,6 +653,9 @@ EOF
   # kubectl and bats have formula names that differ from their commands.
   grep -qF "brew install kubernetes-cli" "$STUB_CALLS"
   grep -qF "brew install bats-core" "$STUB_CALLS"
+  # the 1Password CLI ships as a cask, so this also pins that the call
+  # took the --cask path instead of asking brew for an "op" formula.
+  grep -qF "brew install --cask 1password-cli" "$STUB_CALLS"
 }
 
 @test "reports a follow-up when the claude-code cask install fails" {
@@ -662,6 +667,37 @@ EOF
   [[ "$output" == *"Install it manually: brew install --cask claude-code"* ]]
   local clean; clean="$(plain "$output")"
   [[ "$clean" != *"✔ Claude Code"* ]]
+}
+
+@test "--password-manager skip still installs the 1Password CLI" {
+  baseline_env
+  export FORCE_COMMAND_MISSING="op"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  # the CLI has to come out even when the password manager choice skips
+  # every GUI app, which is the whole point of installing it outside that
+  # block. Telling the two apart takes the word after "1Password": the
+  # app's check line is otherwise a prefix of the CLI's.
+  [[ "$output" == *"Checking if 1Password CLI is installed"* ]]
+  [[ "$output" != *"Checking if 1Password is installed"* ]]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" == *"✔ 1Password CLI 2.39.0"* ]]
+  # same trap in the brew log, where "--cask 1password-cli" contains
+  # "--cask 1password", so the app install is ruled out on a whole-line
+  # match rather than a substring.
+  grep -qxF "brew install --cask 1password-cli" "$STUB_CALLS"
+  ! grep -qxF "brew install --cask 1password" "$STUB_CALLS"
+}
+
+@test "reports a follow-up when the 1password-cli cask install fails" {
+  baseline_env
+  export FORCE_COMMAND_MISSING="op" BREW_INSTALL_FAIL=1
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"brew install --cask 1password-cli failed."* ]]
+  [[ "$output" == *"Install it manually: brew install --cask 1password-cli"* ]]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" != *"✔ 1Password CLI"* ]]
 }
 
 @test "falls back to -v when --version is unsupported" {
@@ -856,6 +892,60 @@ add_install_cmd_call() {
   [[ "$output" == *"Checking if jq is installed"* ]]
   [[ "$output" == *"════ Run summary ════"* ]]
   [ "$(grep -cF "brew install nosuchtool" "$STUB_CALLS")" -eq 0 ]
+}
+
+@test "an install_cmd --cask with no value is reported without hanging" {
+  baseline_env
+  add_install_cmd_call 'install_cmd nosuchtool --cask'
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"install_cmd nosuchtool: --cask requires a value."* ]]
+  # nothing has set a cask yet at the point the guard fires, so the hint
+  # falls back to the command name.
+  [[ "$output" == *"Install it manually: brew install nosuchtool"* ]]
+  [[ "$output" == *"Checking if jq is installed"* ]]
+  [[ "$output" == *"════ Run summary ════"* ]]
+  [ "$(grep -cF "nosuchtool" "$STUB_CALLS")" -eq 0 ]
+}
+
+@test "a missing value after a --cask names the cask in the hint" {
+  baseline_env
+  add_install_cmd_call 'install_cmd nosuchtool --cask nosuchcask --tap'
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"install_cmd nosuchtool: --tap requires a value."* ]]
+  # a cask-only call has no formula to fall back on, so a hint reading
+  # "brew install nosuchtool" would send the reader after a formula that
+  # does not exist.
+  [[ "$output" == *"Install it manually: brew install --cask nosuchcask"* ]]
+  [[ "$output" == *"Checking if jq is installed"* ]]
+  [[ "$output" == *"════ Run summary ════"* ]]
+}
+
+@test "an install_cmd --version-from-app with no value is reported without hanging" {
+  baseline_env
+  add_install_cmd_call 'install_cmd nosuchtool --cask nosuchcask --version-from-app'
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"install_cmd nosuchtool: --version-from-app requires a value."* ]]
+  [[ "$output" == *"Install it manually: brew install --cask nosuchcask"* ]]
+  [[ "$output" == *"Checking if jq is installed"* ]]
+  [[ "$output" == *"════ Run summary ════"* ]]
+}
+
+@test "install_cmd --formula together with --cask is reported and skipped" {
+  baseline_env
+  add_install_cmd_call 'install_cmd nosuchtool --formula nosuchformula --cask nosuchcask'
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"install_cmd nosuchtool: --formula and --cask are mutually exclusive."* ]]
+  [[ "$output" == *"Install it manually: brew install nosuchformula"* ]]
+  [[ "$output" == *"Checking if jq is installed"* ]]
+  [[ "$output" == *"════ Run summary ════"* ]]
+  # neither of the two packages is worth guessing at, so nothing is
+  # installed for this call at all.
+  [ "$(grep -cF "nosuchformula" "$STUB_CALLS")" -eq 0 ]
+  [ "$(grep -cF "nosuchcask" "$STUB_CALLS")" -eq 0 ]
 }
 
 # --- taps -----------------------------------------------------------------
