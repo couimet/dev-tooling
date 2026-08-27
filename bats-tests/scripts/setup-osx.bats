@@ -42,6 +42,15 @@ IDE_EXTENSIONS=(
   couimet.rangelink-vscode-extension
 )
 
+# The Chrome extension list, mirrored from scripts/setup-osx.sh.
+CHROME_EXTENSIONS=(
+  "fmkadmapgofadopljbjfkapdkoienihi;React Developer Tools"
+  "chklaanhfefbnpoihckbnefhakgolnmc;JSONVue"
+  "aeblfdkhhhdcdjpifhhbdiojplfjncoa;1Password"
+  "lmhkpmbekcpmknklioeibfkpmmfibljd;Redux DevTools"
+  "nhdogjmejiglipccpnnnanhbledajbpd;Vue.js devtools"
+)
+
 # --- CLI ------------------------------------------------------------------
 
 @test "--help prints usage and exits 0" {
@@ -1151,6 +1160,52 @@ EOF
   [[ "$output" == *"brew install --cask iterm2 failed."* ]]
   local clean; clean="$(plain "$output")"
   [[ "$clean" != *"✔ iTerm2"* ]]
+}
+
+# --- Chrome extensions -----------------------------------------------------
+
+chrome_ext_dir() {
+  echo "$HOME/Library/Application Support/Google/Chrome/External Extensions"
+}
+
+@test "installs the Chrome extension preference files when missing" {
+  baseline_env
+  make_app "Google Chrome"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  local clean; clean="$(plain "$output")"
+  for entry in "${CHROME_EXTENSIONS[@]}"; do
+    local id="${entry%%;*}" name="${entry#*;}"
+    [[ "$clean" == *"✔ Chrome: $name"* ]]
+    [ -f "$(chrome_ext_dir)/$id.json" ]
+    grep -q 'external_update_url' "$(chrome_ext_dir)/$id.json"
+  done
+  [[ "$output" == *"Restart Chrome to load the newly added extensions"* ]]
+}
+
+@test "reports existing Chrome extension preference files as present" {
+  baseline_env
+  make_app "Google Chrome"
+  mkdir -p "$(chrome_ext_dir)"
+  for entry in "${CHROME_EXTENSIONS[@]}"; do
+    printf '%s\n' '{"external_update_url": "https://clients2.google.com/service/update2/crx"}' > "$(chrome_ext_dir)/${entry%%;*}.json"
+  done
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  local clean; clean="$(plain "$output")"
+  for entry in "${CHROME_EXTENSIONS[@]}"; do
+    [[ "$clean" == *"Chrome: ${entry#*;}"* ]]
+  done
+  [[ "$clean" != *"✔ Chrome:"* ]]
+  [[ "$output" != *"Restart Chrome"* ]]
+}
+
+@test "skips the Chrome extension step when Chrome is not installed" {
+  baseline_env
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"No Chrome installation found; skipping its extensions."* ]]
+  [ ! -d "$(chrome_ext_dir)" ]
 }
 
 # --- CLIs -----------------------------------------------------------------
