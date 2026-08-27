@@ -8,6 +8,12 @@ This project uses [Calendar Versioning](https://calver.org/) with the format `YY
 
 Entries are organized using [Keep a Changelog](https://keepachangelog.com/) categories: **Added**, **Changed**, **Fixed**, **Removed**. Not every release uses every category; include only the ones that apply.
 
+## 2026.08.26.2
+
+### Added
+
+- setup-osx.sh now completes the nvm install by writing the nvm loader into `~/.zshrc`: it creates `~/.nvm`, exports `NVM_DIR`, and sources `nvm.sh` plus its bash completion, so nvm and the Node.js versions it manages load in every new shell instead of only the setup run. A pre-existing Homebrew-installed nvm is detected from the `brew --prefix nvm` opt path and honored with the matching brew loader instead of being reinstalled. ([issues/20](https://github.com/couimet/dev-tooling/issues/20))
+
 ## 2026.08.26.1
 
 ### Added
