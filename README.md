@@ -1,5 +1,7 @@
 # dev-tooling
 
+[![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/couimet/dev-tooling?label=CodeRabbit+Reviews)](https://coderabbit.ai)
+
 This repo contains a collection of tools/snippets that I've written (or _borrowed_ 😉) over the years.
 
 ## Scripts
