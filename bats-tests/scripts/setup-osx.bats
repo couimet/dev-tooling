@@ -718,6 +718,30 @@ EOF
   [[ "$clean" != *"✔ yarn"* ]]
 }
 
+@test "reports an error when yarn's version cannot be determined after enabling" {
+  baseline_env
+  export FORCE_COMMAND_MISSING="yarn"
+  export COREPACK_YARN_NO_VERSION=1
+  register_stub corepack
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"could not be determined"* ]]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" != *"✔ yarn"* ]]
+}
+
+@test "activates the nvm-managed node when the active node is not nvm's" {
+  baseline_env
+  # Node resolves from TEST_BIN rather than $NVM_DIR, so the pinned-major
+  # present branch must switch to the nvm-managed node via nvm use.
+  cat > "$HOME/.nvm/nvm.sh" <<'EOF'
+nvm() { echo "nvm $*" >> "$STUB_CALLS"; }
+EOF
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  grep -qF "nvm use 24" "$STUB_CALLS"
+}
+
 # --- pnpm and yarn warnings ------------------------------------------------
 
 @test "warns when pnpm is installed through brew" {

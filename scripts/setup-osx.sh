@@ -983,6 +983,16 @@ if ! check_command node || [[ "$node_major" != "$NODE_MAJOR_VERSION" ]]; then
         note_followup "Install Node.js manually: https://nodejs.org/en/download"
     fi
 else
+    # The active node already reports the target major, but it may be a
+    # Homebrew or system install rather than the nvm-managed copy. When
+    # nvm is available, switch to its node so the corepack enable below
+    # lands the yarn shim next to nvm's node; a failed switch only warns
+    # and leaves yarn to be enabled under whatever node is active.
+    if command -v nvm &>/dev/null && [[ "$(command -v node)" != "$NVM_DIR/versions/node/"* ]]; then
+        if ! nvm use "$NODE_MAJOR_VERSION" &>/dev/null; then
+            report "warning" "Could not switch to the nvm-managed Node.js ${NODE_MAJOR_VERSION}; yarn may be enabled under a different Node."
+        fi
+    fi
     note_present "Node.js ${CHECKED_VERSION}"
 fi
 
@@ -1001,7 +1011,18 @@ else
         report "error" "corepack is not available; skipping the yarn install."
         note_followup "Install corepack (npm install -g corepack), then enable yarn with: corepack enable yarn"
     elif corepack enable yarn; then
-        note_added "yarn $(cmd_version yarn)"
+        # corepack enable only creates the shim; the first yarn probe
+        # downloads the pinned version and needs network access, so the
+        # version can legitimately come back unknown. Only record the
+        # install when a real version answered, and leave a manual
+        # follow-up otherwise.
+        yarn_version="$(cmd_version yarn)"
+        if [[ "$yarn_version" == "unknown" ]]; then
+            report "error" "corepack enabled yarn, but its version could not be determined; it may need network access on first use."
+            note_followup "Verify yarn works manually: yarn --version"
+        else
+            note_added "yarn ${yarn_version}"
+        fi
     else
         report "error" "corepack could not enable yarn."
         note_followup "Enable yarn manually: corepack enable yarn"
