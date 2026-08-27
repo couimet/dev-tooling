@@ -674,7 +674,51 @@ EOF
   [ -f "$HOME/.nvm/nvm.sh" ]
 }
 
-# --- pnpm warning ---------------------------------------------------------
+# --- yarn via corepack ---------------------------------------------------
+
+@test "yarn is reported present with its version" {
+  baseline_env
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"yarn is installed"* ]]
+  [[ "$output" == *"yarn 1.22.22"* ]]
+}
+
+@test "enables yarn via corepack when it is missing" {
+  baseline_env
+  export FORCE_COMMAND_MISSING="yarn"
+  register_stub corepack
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" == *"✔ yarn 1.22.22"* ]]
+  grep -qF "corepack enable yarn" "$STUB_CALLS"
+}
+
+@test "reports an error when corepack cannot enable yarn" {
+  baseline_env
+  export FORCE_COMMAND_MISSING="yarn"
+  export COREPACK_ENABLE_FAIL=1
+  register_stub corepack
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"corepack could not enable yarn"* ]]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" != *"✔ yarn"* ]]
+}
+
+@test "reports a follow-up when corepack is not available" {
+  baseline_env
+  export FORCE_COMMAND_MISSING="yarn"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"corepack is not available"* ]]
+  [[ "$output" == *"corepack enable yarn"* ]]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" != *"✔ yarn"* ]]
+}
+
+# --- pnpm and yarn warnings ------------------------------------------------
 
 @test "warns when pnpm is installed through brew" {
   baseline_env
@@ -684,11 +728,21 @@ EOF
   [[ "$output" == *"pnpm is installed through Homebrew"* ]]
 }
 
-@test "stays silent when pnpm is not installed through brew" {
+@test "warns when yarn is installed through brew" {
+  baseline_env
+  export BREW_HAS_YARN=1
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"yarn is installed through Homebrew"* ]]
+  [[ "$output" == *"corepack enable yarn"* ]]
+}
+
+@test "stays silent when pnpm and yarn are not installed through brew" {
   baseline_env
   run zsh "$OSX" --ide skip --password-manager skip
   [ "$status" -eq 0 ]
   [[ "$output" != *"pnpm is installed through Homebrew"* ]]
+  [[ "$output" != *"yarn is installed through Homebrew"* ]]
 }
 
 # --- Applications ---------------------------------------------------------

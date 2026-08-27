@@ -8,6 +8,12 @@ This project uses [Calendar Versioning](https://calver.org/) with the format `YY
 
 Entries are organized using [Keep a Changelog](https://keepachangelog.com/) categories: **Added**, **Changed**, **Fixed**, **Removed**. Not every release uses every category; include only the ones that apply.
 
+## 2026.08.27
+
+### Added
+
+- `setup-osx.sh` now enables `yarn` through corepack, the package manager bundled with Node.js, so yarn runs under the nvm-managed Node instead of a Homebrew install that would drag in its own Node.js. The existing Homebrew warning now also flags a brew-installed yarn, which would shadow the version corepack manages, matching the existing pnpm warning. ([issues/26](https://github.com/couimet/dev-tooling/issues/26))
+
 ## 2026.08.26.2
 
 ### Added

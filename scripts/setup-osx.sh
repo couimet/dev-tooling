@@ -986,14 +986,40 @@ else
     note_present "Node.js ${CHECKED_VERSION}"
 fi
 
-# --- pnpm warning ----------------------------------------------------------
+# --- yarn via corepack -----------------------------------------------------
 
-# pnpm installed through Homebrew sits outside corepack, the package
-# manager that ships with Node.js, leaving two pnpm versions around.
-# Surface it so it can be cleaned up when present.
+# corepack ships with Node.js and manages yarn's version, so enabling
+# yarn through it keeps yarn under the nvm-managed Node rather than a
+# Homebrew install that drags in its own Node.js. The corepack shim
+# lands in Node's bin directory, so yarn is available wherever nvm's
+# Node is.
+print_check_message "yarn"
+if check_command yarn; then
+    note_present "yarn ${CHECKED_VERSION}"
+else
+    if ! command -v corepack &>/dev/null; then
+        report "error" "corepack is not available; skipping the yarn install."
+        note_followup "Install corepack (npm install -g corepack), then enable yarn with: corepack enable yarn"
+    elif corepack enable yarn; then
+        note_added "yarn $(cmd_version yarn)"
+    else
+        report "error" "corepack could not enable yarn."
+        note_followup "Enable yarn manually: corepack enable yarn"
+    fi
+fi
+
+# --- pnpm and yarn warnings -------------------------------------------------
+
+# pnpm or yarn installed through Homebrew sits outside corepack, the
+# package manager that ships with Node.js, leaving two versions around.
+# Surface either one so it can be cleaned up when present.
 if brew list pnpm &>/dev/null; then
     report "warning" "pnpm is installed through Homebrew, which can shadow the version managed by corepack."
     report "warning" "Suggested fix: brew uninstall pnpm, then enable it via corepack (corepack enable pnpm)."
+fi
+if brew list yarn &>/dev/null; then
+    report "warning" "yarn is installed through Homebrew, which can shadow the version managed by corepack."
+    report "warning" "Suggested fix: brew uninstall yarn, then enable it via corepack (corepack enable yarn)."
 fi
 
 # --- Applications ----------------------------------------------------------

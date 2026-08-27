@@ -1,0 +1,22 @@
+#!/bin/bash
+# corepack stub. Simulates `corepack enable yarn` writing the yarn shim
+# into the same bin directory the stub lives in, so a later `yarn
+# --version` probe in the same run resolves the way it does after a real
+# enable. Controlled by env vars:
+#   COREPACK_ENABLE_FAIL=1  simulate an enable failure
+echo "corepack $*" >> "$STUB_CALLS"
+if [[ "$COREPACK_ENABLE_FAIL" == "1" ]]; then
+  exit 1
+fi
+case "$1" in
+  enable)
+    shim_dir="$(cd "$(dirname "$0")" && pwd)"
+    cat > "$shim_dir/yarn" <<'EOF'
+#!/bin/bash
+echo "${YARN_VERSION_OUTPUT:-1.22.22}"
+EOF
+    chmod +x "$shim_dir/yarn"
+    exit 0 ;;
+  *)
+    exit 0 ;;
+esac

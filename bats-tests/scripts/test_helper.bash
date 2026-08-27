@@ -55,6 +55,7 @@ setup_common() {
   make_tool tflint "TFLint version 0.59.0"
   make_tool terraform-docs "terraform-docs version v0.24.0 e0d2a3a darwin/arm64"
   make_tool bats "Bats 1.14.0"
+  make_tool yarn "1.22.22"
   cat > "$TEST_BIN/node" <<'EOF'
 #!/bin/bash
 echo "${NODE_VERSION_OUTPUT:-v24.1.0}"
