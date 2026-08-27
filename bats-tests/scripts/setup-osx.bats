@@ -562,6 +562,22 @@ EOF
   [[ "$output" == *"already configured"* ]]
 }
 
+@test "adds the nvm loader when only commented loader lines are present" {
+  baseline_env
+  cat > "$HOME/.zshrc" <<'EOF'
+# nvm (added by the dev-tooling setup script)
+# export NVM_DIR="$HOME/.nvm"
+# [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+# [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+EOF
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Added the nvm loader to ~/.zshrc"* ]]
+  [[ "$output" != *"already configured"* ]]
+  [ "$(grep -cE '^[[:space:]]*export[[:space:]]+NVM_DIR=' "$HOME/.zshrc")" -eq 1 ]
+  grep -qF '# export NVM_DIR="$HOME/.nvm"' "$HOME/.zshrc"
+}
+
 @test "repairs the loader when ~/.zshrc has only the NVM_DIR export" {
   baseline_env
   printf 'export NVM_DIR="$HOME/.nvm"\n' > "$HOME/.zshrc"
@@ -947,6 +963,17 @@ EOF
   [[ "$clean" != *"✔ starship shell profile"* ]]
   [[ "$clean" == *"starship shell profile"* ]]
   [ "$(grep -cF 'eval "$(starship init zsh)"' "$HOME/.zshrc")" -eq 1 ]
+}
+
+@test "adds the starship init line when only a commented one is present" {
+  baseline_env
+  printf '\n# eval "$(starship init zsh)"\n' >> "$HOME/.zshrc"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" == *"✔ starship shell profile"* ]]
+  grep -qF '# eval "$(starship init zsh)"' "$HOME/.zshrc"
+  [ "$(grep -cE '^[[:space:]]*eval[[:space:]]+"\$\(starship init zsh\)"' "$HOME/.zshrc")" -eq 1 ]
 }
 
 # --- Applications ---------------------------------------------------------

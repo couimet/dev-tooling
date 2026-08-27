@@ -613,6 +613,48 @@ check_oh_my_zsh() {
     return 0
 }
 
+# True when the profile has the literal line active: the line contains the
+# literal and its first non-whitespace character is not a comment marker.
+# A commented-out loader line must not be mistaken for a configured one,
+# since the gate would then skip adding the active command. The literal is
+# matched with index() so no regex escaping is needed for $, [, ] or $().
+profile_has_active_line() {
+    local profile="$1" literal="$2"
+    awk -v pat="$literal" 'index($0, pat) && $0 !~ /^[[:space:]]*#/' "$profile" 2>/dev/null | grep -q .
+}
+
+# Appends a block to a file atomically: copies the file to a same-directory
+# temp (or starts an empty temp when the file does not yet exist), appends
+# stdin to the temp, then mv's it over the original, so an interrupted run
+# leaves the original file intact and the next run repairs cleanly. Returns
+# nonzero when the target exists but is not a regular file, so a write into
+# a directory path is reported as a failure instead of moving the temp into it.
+append_atomic() {
+    local file="$1" tmp
+    [[ -f "$file" || ! -e "$file" ]] || return 1
+    tmp="${file}.tmp.$$"
+    if cp "$file" "$tmp" 2>/dev/null || : > "$tmp"; then
+        if cat >> "$tmp" && mv "$tmp" "$file"; then
+            return 0
+        fi
+    fi
+    rm -f "$tmp"
+    return 1
+}
+
+# Writes a block to a file atomically: writes stdin to a same-directory temp
+# then mv's it over the target, so an interrupted run never leaves a
+# truncated file that a re-run would mistake for existing content.
+atomic_write() {
+    local file="$1" tmp
+    tmp="${file}.tmp.$$"
+    if cat > "$tmp" && mv "$tmp" "$file"; then
+        return 0
+    fi
+    rm -f "$tmp"
+    return 1
+}
+
 # Makes nvm load in every new shell. nvm's own installer (and brew's
 # caveat) require ~/.nvm to exist and the shell profile to export NVM_DIR
 # and source nvm.sh plus its bash completion; the nvm block above only
@@ -628,9 +670,9 @@ ensure_nvm_profile() {
         # its completion live in the keg opt prefix, so the gate and the
         # written lines carry the concrete brew paths.
         # shellcheck disable=SC2016  # the literal $HOME in the export is the point
-        if grep -qF 'export NVM_DIR="$HOME/.nvm"' "$profile" 2>/dev/null \
-            && grep -qF "[ -s \"$NVM_BREW_PREFIX/nvm.sh\" ]" "$profile" 2>/dev/null \
-            && grep -qF "[ -s \"$NVM_BREW_PREFIX/etc/bash_completion.d/nvm\" ]" "$profile" 2>/dev/null; then
+        if profile_has_active_line "$profile" 'export NVM_DIR="$HOME/.nvm"' \
+            && profile_has_active_line "$profile" "[ -s \"$NVM_BREW_PREFIX/nvm.sh\" ]" \
+            && profile_has_active_line "$profile" "[ -s \"$NVM_BREW_PREFIX/etc/bash_completion.d/nvm\" ]"; then
             report "success" "nvm shell profile is already configured in ~/.zshrc"
             note_present "nvm shell profile (~/.zshrc)"
             return 0
@@ -639,7 +681,7 @@ ensure_nvm_profile() {
         # escaped so NVM_DIR still resolves at login time. A failed append
         # is reported and returns nonzero so the run never records a
         # loader that did not land in the profile.
-        if ! cat >> "$profile" <<EOF
+        if ! append_atomic "$profile" <<EOF
 
 # nvm (added by the dev-tooling setup script)
 export NVM_DIR="\$HOME/.nvm"
@@ -660,22 +702,22 @@ EOF
     # configured. Each pattern is quoted so the literal $HOME and $NVM_DIR
     # are what is searched for in the profile.
     # shellcheck disable=SC2016  # the literal $HOME and $NVM_DIR are the point
-    if grep -qF 'export NVM_DIR="$HOME/.nvm"' "$profile" 2>/dev/null \
-        && grep -qF '[ -s "$NVM_DIR/nvm.sh" ]' "$profile" 2>/dev/null \
-        && grep -qF '[ -s "$NVM_DIR/bash_completion" ]' "$profile" 2>/dev/null; then
+    if profile_has_active_line "$profile" 'export NVM_DIR="$HOME/.nvm"' \
+        && profile_has_active_line "$profile" '[ -s "$NVM_DIR/nvm.sh" ]' \
+        && profile_has_active_line "$profile" '[ -s "$NVM_DIR/bash_completion" ]'; then
         report "success" "nvm shell profile is already configured in ~/.zshrc"
         note_present "nvm shell profile (~/.zshrc)"
         return 0
     fi
     # Quoted heredoc so the literal $HOME and $NVM_DIR land in the
     # profile and resolve at login time instead of during this run.
-    # The append is atomic: the whole block is written together, so the
-    # export always lands before the sources even when repairing a partial
-    # state, and an already-present line is merely duplicated (same value,
-    # idempotent) rather than reordered. A failed append is reported and
-    # returns nonzero so the run never records a loader that did not land
-    # in the profile.
-    if ! cat >> "$profile" <<'EOF'
+    # The append is atomic: the whole block is written to a same-directory
+    # temp that is mv'd into place, so the export always lands before the
+    # sources even when repairing a partial state, and an already-present
+    # line is merely duplicated (same value, idempotent) rather than
+    # reordered. A failed append is reported and returns nonzero so the run
+    # never records a loader that did not land in the profile.
+    if ! append_atomic "$profile" <<'EOF'
 
 # nvm (added by the dev-tooling setup script)
 export NVM_DIR="$HOME/.nvm"
@@ -755,12 +797,12 @@ EOF
 ensure_starship_profile() {
     local profile="$HOME/.zshrc"
     # shellcheck disable=SC2016  # the literal $() in the profile line is the point
-    if grep -qF 'eval "$(starship init zsh)"' "$profile" 2>/dev/null; then
+    if profile_has_active_line "$profile" 'eval "$(starship init zsh)"'; then
         report "success" "starship shell profile is already configured in ~/.zshrc"
         note_present "starship shell profile (~/.zshrc)"
         return 0
     fi
-    if ! cat >> "$profile" <<'EOF'
+    if ! append_atomic "$profile" <<'EOF'
 
 # Starship prompt (added by the dev-tooling setup script)
 eval "$(starship init zsh)"
@@ -1325,7 +1367,7 @@ if [[ "$starship_present" == true ]]; then
     # surfaced as drift rather than clobbered.
     mkdir -p "$HOME/.config"
     if [[ ! -f "$HOME/.config/starship.toml" ]]; then
-        if starship_expected_config > "$HOME/.config/starship.toml"; then
+        if starship_expected_config | atomic_write "$HOME/.config/starship.toml"; then
             note_added "starship prompt config (~/.config/starship.toml)"
         else
             report "error" "Could not write the starship prompt config."
