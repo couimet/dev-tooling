@@ -227,7 +227,9 @@ EOF
   git config --global user.email "test@example.com"
   export BREW_HAS_GIT=1
   mkdir -p "$HOME/.nvm"
-  touch "$HOME/.nvm/nvm.sh"
+  cat > "$HOME/.nvm/nvm.sh" <<'EOF'
+nvm() { echo "nvm $*"; }
+EOF
   mkdir -p "$BATS_TEST_TMPDIR/standalone" "$BATS_TEST_TMPDIR/tmp"
   cp "$TEST_SCRIPTS/setup-osx.sh" "$BATS_TEST_TMPDIR/standalone/"
   run env TMPDIR="$BATS_TEST_TMPDIR/tmp" zsh "$BATS_TEST_TMPDIR/standalone/setup-osx.sh" --ide skip --password-manager skip <<< ""
@@ -352,7 +354,9 @@ EOF
   git config --global user.email "test@example.com"
   export BREW_HAS_GIT=1
   mkdir -p "$HOME/.nvm"
-  touch "$HOME/.nvm/nvm.sh"
+  cat > "$HOME/.nvm/nvm.sh" <<'EOF'
+nvm() { echo "nvm $*"; }
+EOF
   run zsh "$OSX" --ide skip --password-manager skip <<< ""
   [ "$status" -eq 0 ]
   [ -f "$HOME/.ssh/id_ed25519" ]
@@ -370,7 +374,9 @@ EOF
   git config --global user.email "test@example.com"
   export BREW_HAS_GIT=1
   mkdir -p "$HOME/.nvm"
-  touch "$HOME/.nvm/nvm.sh"
+  cat > "$HOME/.nvm/nvm.sh" <<'EOF'
+nvm() { echo "nvm $*"; }
+EOF
   rm "$TEST_SCRIPTS/setup-github-ssh.sh"
   run zsh "$OSX" --ide skip --password-manager skip <<< ""
   [ "$status" -eq 0 ]
@@ -514,6 +520,158 @@ EOF
   [[ "$output" == *"nvm is not available in this shell"* ]]
   [[ "$output" == *"Install nvm first: https://github.com/nvm-sh/nvm#installing-and-updating"* ]]
   [[ "$output" != *"via nvm"* ]]
+}
+
+@test "adds the nvm loader to ~/.zshrc when it is missing" {
+  baseline_env
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [ -f "$HOME/.zshrc" ]
+  grep -qF 'export NVM_DIR="$HOME/.nvm"' "$HOME/.zshrc"
+  grep -qF '[ -s "$NVM_DIR/nvm.sh" ]' "$HOME/.zshrc"
+  grep -qF '[ -s "$NVM_DIR/bash_completion" ]' "$HOME/.zshrc"
+  [[ "$output" == *"Added the nvm loader to ~/.zshrc"* ]]
+  [[ "$output" == *"nvm shell profile"* ]]
+  ! grep -qF '/opt/homebrew/opt/nvm' "$HOME/.zshrc"
+}
+
+@test "reports an error instead of success when the nvm loader cannot be appended" {
+  baseline_env
+  # A directory in place of ~/.zshrc makes the append fail, exercising
+  # the profile-write failure path without needing to stub cat.
+  mkdir -p "$HOME/.zshrc"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Failed to write the nvm loader to ~/.zshrc"* ]]
+  [[ "$output" != *"Added the nvm loader to ~/.zshrc"* ]]
+  [[ "$output" == *"Add to ~/.zshrc: export NVM_DIR=\"\$HOME/.nvm\""* ]]
+  [[ "$output" != *"nvm shell profile (~/.zshrc)"* ]]
+}
+
+@test "does not duplicate the nvm loader when ~/.zshrc already has it" {
+  baseline_env
+  cat > "$HOME/.zshrc" <<'EOF'
+# nvm (added by the dev-tooling setup script)
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+EOF
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [ "$(grep -c 'export NVM_DIR' "$HOME/.zshrc")" -eq 1 ]
+  [[ "$output" == *"already configured"* ]]
+}
+
+@test "repairs the loader when ~/.zshrc has only the NVM_DIR export" {
+  baseline_env
+  printf 'export NVM_DIR="$HOME/.nvm"\n' > "$HOME/.zshrc"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  grep -qF '[ -s "$NVM_DIR/nvm.sh" ]' "$HOME/.zshrc"
+  grep -qF '[ -s "$NVM_DIR/bash_completion" ]' "$HOME/.zshrc"
+  [[ "$output" == *"Added the nvm loader to ~/.zshrc"* ]]
+}
+
+@test "repairs the loader when ~/.zshrc has the sources but no export" {
+  baseline_env
+  cat > "$HOME/.zshrc" <<'EOF'
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+EOF
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  grep -qF 'export NVM_DIR="$HOME/.nvm"' "$HOME/.zshrc"
+  [[ "$output" == *"Added the nvm loader to ~/.zshrc"* ]]
+}
+
+@test "configures the shell profile after a fresh nvm install" {
+  baseline_env
+  rm -rf "$HOME/.nvm"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [ -f "$HOME/.nvm/nvm.sh" ]
+  [ -f "$HOME/.zshrc" ]
+  grep -qF 'export NVM_DIR="$HOME/.nvm"' "$HOME/.zshrc"
+  [[ "$output" == *"has been installed"* ]]
+  [[ "$output" == *"nvm shell profile"* ]]
+}
+
+@test "skips the profile write when nvm is not installed" {
+  baseline_env
+  rm -rf "$HOME/.nvm"
+  export CURL_NVM_LATEST_FAIL=1
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [ ! -f "$HOME/.zshrc" ]
+  [[ "$output" != *"nvm shell profile"* ]]
+}
+
+@test "uses a Homebrew-installed nvm without reinstalling" {
+  baseline_env
+  rm -rf "$HOME/.nvm"
+  export BREW_HAS_NVM=1
+  export BREW_NVM_PREFIX="$BATS_TEST_TMPDIR/brew-nvm"
+  mkdir -p "$BREW_NVM_PREFIX/etc/bash_completion.d"
+  cat > "$BREW_NVM_PREFIX/nvm.sh" <<'EOF'
+nvm() { echo "nvm $*"; }
+EOF
+  touch "$BREW_NVM_PREFIX/etc/bash_completion.d/nvm"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"nvm is installed (via Homebrew)"* ]]
+  [[ "$output" != *"Installing nvm"* ]]
+  [ ! -f "$HOME/.nvm/nvm.sh" ]
+  grep -qF "[ -s \"$BREW_NVM_PREFIX/nvm.sh\" ]" "$HOME/.zshrc"
+}
+
+@test "does not duplicate the Homebrew loader when ~/.zshrc already has it" {
+  baseline_env
+  rm -rf "$HOME/.nvm"
+  export BREW_HAS_NVM=1
+  export BREW_NVM_PREFIX="$BATS_TEST_TMPDIR/brew-nvm"
+  mkdir -p "$BREW_NVM_PREFIX/etc/bash_completion.d"
+  cat > "$BREW_NVM_PREFIX/nvm.sh" <<'EOF'
+nvm() { echo "nvm $*"; }
+EOF
+  touch "$BREW_NVM_PREFIX/etc/bash_completion.d/nvm"
+  cat > "$HOME/.zshrc" <<EOF
+export NVM_DIR="\$HOME/.nvm"
+[ -s "$BREW_NVM_PREFIX/nvm.sh" ] && \. "$BREW_NVM_PREFIX/nvm.sh"
+[ -s "$BREW_NVM_PREFIX/etc/bash_completion.d/nvm" ] && \. "$BREW_NVM_PREFIX/etc/bash_completion.d/nvm"
+EOF
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [ "$(grep -c 'export NVM_DIR' "$HOME/.zshrc")" -eq 1 ]
+  [[ "$output" == *"already configured"* ]]
+}
+
+@test "prefers the nvm-sh install when both layouts exist" {
+  baseline_env
+  export BREW_HAS_NVM=1
+  export BREW_NVM_PREFIX="$BATS_TEST_TMPDIR/brew-nvm"
+  mkdir -p "$BREW_NVM_PREFIX/etc/bash_completion.d"
+  cat > "$BREW_NVM_PREFIX/nvm.sh" <<'EOF'
+nvm() { echo "brew nvm $*"; }
+EOF
+  touch "$BREW_NVM_PREFIX/etc/bash_completion.d/nvm"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"via Homebrew"* ]]
+  [[ "$output" == *"nvm is installed"* ]]
+  grep -qF '[ -s "$NVM_DIR/nvm.sh" ]' "$HOME/.zshrc"
+  ! grep -qF '/opt/homebrew/opt/nvm' "$HOME/.zshrc"
+}
+
+@test "installs nvm-sh when the brew nvm is not loadable" {
+  baseline_env
+  rm -rf "$HOME/.nvm"
+  export BREW_HAS_NVM=1
+  export BREW_NVM_PREFIX="$BATS_TEST_TMPDIR/empty-brew-nvm"
+  mkdir -p "$BREW_NVM_PREFIX"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Installing nvm v0.40.3"* ]]
+  [ -f "$HOME/.nvm/nvm.sh" ]
 }
 
 # --- pnpm warning ---------------------------------------------------------
@@ -1182,6 +1340,10 @@ EOF
   [ -f "$HOME/.oh-my-zsh-installed" ]
   local clean; clean="$(plain "$output")"
   [[ "$clean" == *"✔ oh-my-zsh"* ]]
+  # The nvm profile step runs after oh-my-zsh, so the loader survives the
+  # (stubbed) fresh oh-my-zsh install instead of being written earlier
+  # and then replaced with the oh-my-zsh template.
+  grep -q 'NVM_DIR' "$HOME/.zshrc"
 }
 
 @test "installs oh-my-zsh unattended so it cannot hijack the run" {

@@ -613,6 +613,85 @@ check_oh_my_zsh() {
     return 0
 }
 
+# Makes nvm load in every new shell. nvm's own installer (and brew's
+# caveat) require ~/.nvm to exist and the shell profile to export NVM_DIR
+# and source nvm.sh plus its bash completion; the nvm block above only
+# configures the current shell. Idempotent: appends the whole block only
+# when any of the three loader lines is missing, so re-runs never
+# duplicate a complete loader and a partial one (e.g. only the export,
+# left by another tool) gets repaired instead of reported as configured.
+ensure_nvm_profile() {
+    mkdir -p "$HOME/.nvm"
+    local profile="$HOME/.zshrc"
+    if [[ "$NVM_LAYOUT" == "brew" ]]; then
+        # Homebrew layout: NVM_DIR is still the data dir, but nvm.sh and
+        # its completion live in the keg opt prefix, so the gate and the
+        # written lines carry the concrete brew paths.
+        # shellcheck disable=SC2016  # the literal $HOME in the export is the point
+        if grep -qF 'export NVM_DIR="$HOME/.nvm"' "$profile" 2>/dev/null \
+            && grep -qF "[ -s \"$NVM_BREW_PREFIX/nvm.sh\" ]" "$profile" 2>/dev/null \
+            && grep -qF "[ -s \"$NVM_BREW_PREFIX/etc/bash_completion.d/nvm\" ]" "$profile" 2>/dev/null; then
+            report "success" "nvm shell profile is already configured in ~/.zshrc"
+            note_present "nvm shell profile (~/.zshrc)"
+            return 0
+        fi
+        # Unquoted heredoc so the brew paths interpolate now; $HOME is
+        # escaped so NVM_DIR still resolves at login time. A failed append
+        # is reported and returns nonzero so the run never records a
+        # loader that did not land in the profile.
+        if ! cat >> "$profile" <<EOF
+
+# nvm (added by the dev-tooling setup script)
+export NVM_DIR="\$HOME/.nvm"
+[ -s "$NVM_BREW_PREFIX/nvm.sh" ] && \. "$NVM_BREW_PREFIX/nvm.sh"  # This loads nvm
+[ -s "$NVM_BREW_PREFIX/etc/bash_completion.d/nvm" ] && \. "$NVM_BREW_PREFIX/etc/bash_completion.d/nvm"  # This loads nvm bash_completion
+EOF
+        then
+            report "error" "Failed to write the nvm loader to ~/.zshrc"
+            note_followup "Add to ~/.zshrc: export NVM_DIR=\"\$HOME/.nvm\"; [ -s \"$NVM_BREW_PREFIX/nvm.sh\" ] && \. \"$NVM_BREW_PREFIX/nvm.sh\"; [ -s \"$NVM_BREW_PREFIX/etc/bash_completion.d/nvm\" ] && \. \"$NVM_BREW_PREFIX/etc/bash_completion.d/nvm\""
+            return 1
+        fi
+        report "info" "Added the nvm loader to ~/.zshrc"
+        note_added "nvm shell profile (~/.zshrc)"
+        return 0
+    fi
+    # The export alone does not load nvm, so the gate is the whole trio:
+    # a profile with only NVM_DIR set must be repaired, not reported as
+    # configured. Each pattern is quoted so the literal $HOME and $NVM_DIR
+    # are what is searched for in the profile.
+    # shellcheck disable=SC2016  # the literal $HOME and $NVM_DIR are the point
+    if grep -qF 'export NVM_DIR="$HOME/.nvm"' "$profile" 2>/dev/null \
+        && grep -qF '[ -s "$NVM_DIR/nvm.sh" ]' "$profile" 2>/dev/null \
+        && grep -qF '[ -s "$NVM_DIR/bash_completion" ]' "$profile" 2>/dev/null; then
+        report "success" "nvm shell profile is already configured in ~/.zshrc"
+        note_present "nvm shell profile (~/.zshrc)"
+        return 0
+    fi
+    # Quoted heredoc so the literal $HOME and $NVM_DIR land in the
+    # profile and resolve at login time instead of during this run.
+    # The append is atomic: the whole block is written together, so the
+    # export always lands before the sources even when repairing a partial
+    # state, and an already-present line is merely duplicated (same value,
+    # idempotent) rather than reordered. A failed append is reported and
+    # returns nonzero so the run never records a loader that did not land
+    # in the profile.
+    if ! cat >> "$profile" <<'EOF'
+
+# nvm (added by the dev-tooling setup script)
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+EOF
+    then
+        report "error" "Failed to write the nvm loader to ~/.zshrc"
+        note_followup "Add to ~/.zshrc: export NVM_DIR=\"\$HOME/.nvm\"; [ -s \"\$NVM_DIR/nvm.sh\" ] && \. \"\$NVM_DIR/nvm.sh\"; [ -s \"\$NVM_DIR/bash_completion\" ] && \. \"\$NVM_DIR/bash_completion\""
+        return 1
+    fi
+    report "info" "Added the nvm loader to ~/.zshrc"
+    note_added "nvm shell profile (~/.zshrc)"
+    return 0
+}
+
 # Resolves the extension CLI binary for an IDE (vscode or cursor): the
 # command on PATH first, then the binary bundled inside the app so an
 # IDE installed from a Homebrew cask (which does not add the CLI to
@@ -814,49 +893,78 @@ fi
 # --- nvm and Node.js -------------------------------------------------------
 
 print_check_message "nvm"
-if [[ -d "$HOME/.nvm" ]]; then
-    export NVM_DIR="$HOME/.nvm"
+export NVM_DIR="$HOME/.nvm"
+NVM_LAYOUT=""
+NVM_BREW_PREFIX=""
+if [[ -s "$HOME/.nvm/nvm.sh" ]]; then
+    # nvm-sh layout, the copy this script installs and manages. It wins
+    # over a brew install when both exist so a machine with both keeps
+    # the self-contained copy under $HOME.
+    NVM_LAYOUT="nvm-sh"
     # shellcheck disable=SC1091  # nvm.sh is sourced from the nvm install dir
     [[ -s "$NVM_DIR/nvm.sh" ]] && source "$NVM_DIR/nvm.sh"
+    # shellcheck disable=SC1091  # completion is sourced from the nvm install dir
+    [[ -s "$NVM_DIR/bash_completion" ]] && source "$NVM_DIR/bash_completion"
     version="$(nvm --version 2>/dev/null)"
     report "success" "nvm is installed"
     echo "  → version: ${GREEN}${version:-unknown}${RESET}"
     echo
     note_present "nvm ${version:-unknown}"
 else
-    report "info" "nvm not found; installing the latest release..."
-    # The latest release tag comes from the GitHub API. Validate it
-    # before building the installer URL from it, so a failed or empty
-    # API response skips the install instead of curling a garbage URL.
-    LATEST_NVM_VERSION="$(curl -s https://api.github.com/repos/nvm-sh/nvm/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')"
-    if [[ -z "$LATEST_NVM_VERSION" ]] || [[ ! "$LATEST_NVM_VERSION" =~ ^v[0-9]+(\.[0-9]+)*$ ]]; then
-        report "error" "Could not resolve the latest nvm release tag; skipping the nvm install."
-        note_followup "Install nvm manually: https://github.com/nvm-sh/nvm#installing-and-updating"
+    # Homebrew nvm (keg-only formula): nvm.sh lives in the Cellar opt
+    # prefix, not in ~/.nvm, so a machine that already got nvm via brew is
+    # honored instead of being reinstalled or left broken. `brew --prefix
+    # nvm` resolves even when the formula is only tapped, so the nvm.sh
+    # presence check, not the exit code, decides.
+    brew_prefix="$(brew --prefix nvm 2>/dev/null)"
+    if [[ -n "$brew_prefix" && -s "$brew_prefix/nvm.sh" ]]; then
+        NVM_LAYOUT="brew"
+        NVM_BREW_PREFIX="$brew_prefix"
+        mkdir -p "$NVM_DIR"
+        # shellcheck disable=SC1091  # nvm.sh is sourced from the brew keg
+        source "$brew_prefix/nvm.sh"
+        # shellcheck disable=SC1091  # completion is sourced from the brew keg
+        [[ -s "$brew_prefix/etc/bash_completion.d/nvm" ]] && source "$brew_prefix/etc/bash_completion.d/nvm"
+        version="$(nvm --version 2>/dev/null)"
+        report "success" "nvm is installed (via Homebrew)"
+        echo "  → version: ${GREEN}${version:-unknown}${RESET}"
+        echo
+        note_present "nvm ${version:-unknown} (Homebrew)"
     else
-        report "info" "Installing nvm ${LATEST_NVM_VERSION}..."
-        # Download the installer to a unique temp file first so the
-        # download result is known before any shell code runs and no
-        # predictable path can be swapped underneath us; the install is
-        # only recorded when the installer exits cleanly.
-        NVM_INSTALLER="$(mktemp "${TMPDIR:-/tmp}/nvm-install.XXXXXX")"
-        if curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/${LATEST_NVM_VERSION}/install.sh" -o "$NVM_INSTALLER"; then
-            if bash "$NVM_INSTALLER"; then
-                export NVM_DIR="$HOME/.nvm"
-                # shellcheck disable=SC1091  # nvm.sh is sourced from the nvm install dir
-                [[ -s "$NVM_DIR/nvm.sh" ]] && source "$NVM_DIR/nvm.sh"
-                # shellcheck disable=SC1091  # completion is sourced from the nvm install dir
-                [[ -s "$NVM_DIR/bash_completion" ]] && source "$NVM_DIR/bash_completion"
-                report "success" "nvm ${LATEST_NVM_VERSION} has been installed"
-                note_added "nvm ${LATEST_NVM_VERSION}"
+        report "info" "nvm not found; installing the latest release..."
+        # The latest release tag comes from the GitHub API. Validate it
+        # before building the installer URL from it, so a failed or empty
+        # API response skips the install instead of curling a garbage URL.
+        LATEST_NVM_VERSION="$(curl -s https://api.github.com/repos/nvm-sh/nvm/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')"
+        if [[ -z "$LATEST_NVM_VERSION" ]] || [[ ! "$LATEST_NVM_VERSION" =~ ^v[0-9]+(\.[0-9]+)*$ ]]; then
+            report "error" "Could not resolve the latest nvm release tag; skipping the nvm install."
+            note_followup "Install nvm manually: https://github.com/nvm-sh/nvm#installing-and-updating"
+        else
+            report "info" "Installing nvm ${LATEST_NVM_VERSION}..."
+            # Download the installer to a unique temp file first so the
+            # download result is known before any shell code runs and no
+            # predictable path can be swapped underneath us; the install is
+            # only recorded when the installer exits cleanly.
+            NVM_INSTALLER="$(mktemp "${TMPDIR:-/tmp}/nvm-install.XXXXXX")"
+            if curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/${LATEST_NVM_VERSION}/install.sh" -o "$NVM_INSTALLER"; then
+                if bash "$NVM_INSTALLER"; then
+                    # shellcheck disable=SC1091  # nvm.sh is sourced from the nvm install dir
+                    [[ -s "$NVM_DIR/nvm.sh" ]] && source "$NVM_DIR/nvm.sh"
+                    # shellcheck disable=SC1091  # completion is sourced from the nvm install dir
+                    [[ -s "$NVM_DIR/bash_completion" ]] && source "$NVM_DIR/bash_completion"
+                    NVM_LAYOUT="nvm-sh"
+                    report "success" "nvm ${LATEST_NVM_VERSION} has been installed"
+                    note_added "nvm ${LATEST_NVM_VERSION}"
+                else
+                    report "error" "The nvm installer failed; nvm was not installed."
+                    note_followup "Install nvm manually: https://github.com/nvm-sh/nvm#installing-and-updating"
+                fi
             else
-                report "error" "The nvm installer failed; nvm was not installed."
+                report "error" "Could not download the nvm installer; skipping the nvm install."
                 note_followup "Install nvm manually: https://github.com/nvm-sh/nvm#installing-and-updating"
             fi
-        else
-            report "error" "Could not download the nvm installer; skipping the nvm install."
-            note_followup "Install nvm manually: https://github.com/nvm-sh/nvm#installing-and-updating"
+            rm -f "$NVM_INSTALLER"
         fi
-        rm -f "$NVM_INSTALLER"
     fi
 fi
 
@@ -1023,6 +1131,17 @@ if ! check_oh_my_zsh; then
     note_added "oh-my-zsh $(omz_version)"
 else
     note_present "oh-my-zsh $(omz_version)"
+fi
+
+# Persist the nvm loader in ~/.zshrc so every new terminal still has
+# nvm. This runs after the oh-my-zsh step because that installer
+# replaces ~/.zshrc on a fresh install (backing up the old one), which
+# would drop lines written earlier in the run; the nvm block above only
+# configures the current shell. NVM_LAYOUT is set there for whichever
+# layout was found or installed, so either one gets its profile written.
+if [[ -n "$NVM_LAYOUT" ]]; then
+    print_check_message "nvm shell profile" "is configured in ~/.zshrc"
+    ensure_nvm_profile
 fi
 
 # --- Summary ---------------------------------------------------------------
