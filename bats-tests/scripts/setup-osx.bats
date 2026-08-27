@@ -945,6 +945,21 @@ EOF
   grep -qF 'format = "$custom_prompt"' "$HOME/.config/starship.toml"
 }
 
+@test "reports an error when the starship config target is a directory" {
+  baseline_env
+  # A directory in place of ~/.config/starship.toml makes the atomic write
+  # fail, exercising the config-write failure path without needing to stub
+  # cat or mv.
+  mkdir -p "$HOME/.config/starship.toml"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Could not write the starship prompt config."* ]]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" != *"✔ starship prompt config"* ]]
+  [ -d "$HOME/.config/starship.toml" ]
+  [ -z "$(ls -A "$HOME/.config/starship.toml")" ]
+}
+
 @test "adds the starship init line to ~/.zshrc when missing" {
   baseline_env
   run zsh "$OSX" --ide skip --password-manager skip

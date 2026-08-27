@@ -644,9 +644,12 @@ append_atomic() {
 
 # Writes a block to a file atomically: writes stdin to a same-directory temp
 # then mv's it over the target, so an interrupted run never leaves a
-# truncated file that a re-run would mistake for existing content.
+# truncated file that a re-run would mistake for existing content. Returns
+# nonzero when the target exists but is not a regular file, so a write into
+# a directory path is reported as a failure instead of moving the temp into it.
 atomic_write() {
     local file="$1" tmp
+    [[ -f "$file" || ! -e "$file" ]] || return 1
     tmp="${file}.tmp.$$"
     if cat > "$tmp" && mv "$tmp" "$file"; then
         return 0
