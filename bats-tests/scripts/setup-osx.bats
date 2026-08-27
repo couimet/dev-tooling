@@ -602,8 +602,11 @@ EOF
   export CURL_NVM_LATEST_FAIL=1
   run zsh "$OSX" --ide skip --password-manager skip
   [ "$status" -eq 0 ]
-  [ ! -f "$HOME/.zshrc" ]
   [[ "$output" != *"nvm shell profile"* ]]
+  # The starship step may create ~/.zshrc for its own init line, so assert
+  # on the loader specifically rather than on the file's existence.
+  run grep -q 'NVM_DIR' "$HOME/.zshrc"
+  [ "$status" -ne 0 ]
 }
 
 @test "uses a Homebrew-installed nvm without reinstalling" {
@@ -793,6 +796,157 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" != *"pnpm is installed through Homebrew"* ]]
   [[ "$output" != *"yarn is installed through Homebrew"* ]]
+}
+
+# --- Starship prompt --------------------------------------------------------
+
+# The opinionated starship config, mirrored from scripts/setup-osx.sh.
+write_expected_starship_config() {
+  mkdir -p "$HOME/.config"
+  cat > "$HOME/.config/starship.toml" <<'EOF'
+format = """
+$username@$hostname:$directory \
+$git_branch\
+$git_status\
+$nodejs\
+$ruby\
+$python\
+$nix_shell\
+$gcloud\
+$time\
+$line_break\
+$character"""
+
+[directory]
+truncation_length = 10  # how many parent dirs to show
+truncate_to_repo = false  # set to true if you want it to truncate at git repo root
+format = "[$path]($style)"
+style = "cyan bold"
+
+[username]
+show_always = true
+format = "[$user]($style)"
+style_user = "green bold"
+
+[hostname]
+ssh_only = false  # show even when not SSH
+format = "[$hostname]($style)"
+style = "green bold"
+
+[git_status]
+stashed = "" # "📦" # change the $ symbol
+untracked = "🆕" # change the ? symbol
+
+[python]
+disabled = true
+
+[nix_shell]
+disabled = true
+
+[gcloud]
+disabled = true
+
+[time]
+disabled = false
+format = '[$time]($style) '
+time_format = '%T'
+style = 'bold yellow'
+EOF
+}
+
+# A deliberately different starship config for the drift test.
+write_custom_starship_config() {
+  mkdir -p "$HOME/.config"
+  cat > "$HOME/.config/starship.toml" <<'EOF'
+format = "$custom_prompt"
+EOF
+}
+
+@test "starship is reported present with its version" {
+  baseline_env
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"starship is installed"* ]]
+  [[ "$output" == *"starship 1.22.1"* ]]
+}
+
+@test "installs starship via brew when it is missing" {
+  baseline_env
+  export FORCE_COMMAND_MISSING="starship"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" == *"✔ starship 1.22.1"* ]]
+  grep -qF "brew install starship" "$STUB_CALLS"
+}
+
+@test "installs the FiraCode Nerd Font when missing" {
+  baseline_env
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" == *"✔ FiraCode Nerd Font"* ]]
+  grep -qF "brew install --cask font-fira-code-nerd-font" "$STUB_CALLS"
+  [[ "$output" == *"Enable the Nerd Font in your terminals"* ]]
+}
+
+@test "reports the FiraCode Nerd Font present when installed" {
+  baseline_env
+  export BREW_HAS_FIRA_CODE_NERD=1
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" != *"✔ FiraCode Nerd Font"* ]]
+  [[ "$clean" == *"FiraCode Nerd Font"* ]]
+}
+
+@test "writes the opinionated starship config when it is missing" {
+  baseline_env
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" == *"✔ starship prompt config"* ]]
+  [ -f "$HOME/.config/starship.toml" ]
+  grep -q '\[directory\]' "$HOME/.config/starship.toml"
+}
+
+@test "reports the starship config present when it matches" {
+  baseline_env
+  write_expected_starship_config
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"starship prompt config"* ]]
+  [[ "$output" != *"drifted"* ]]
+}
+
+@test "warns when the starship config has drifted and leaves it untouched" {
+  baseline_env
+  write_custom_starship_config
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"has been customized"* ]]
+  [[ "$output" == *"drifted"* ]]
+  grep -qF 'format = "$custom_prompt"' "$HOME/.config/starship.toml"
+}
+
+@test "adds the starship init line to ~/.zshrc when missing" {
+  baseline_env
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" == *"✔ starship shell profile"* ]]
+  grep -qF 'eval "$(starship init zsh)"' "$HOME/.zshrc"
+}
+
+@test "reports the starship init line present when already configured" {
+  baseline_env
+  printf '\neval "$(starship init zsh)"\n' >> "$HOME/.zshrc"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" != *"✔ starship shell profile"* ]]
+  [[ "$clean" == *"starship shell profile"* ]]
+  [ "$(grep -cF 'eval "$(starship init zsh)"' "$HOME/.zshrc")" -eq 1 ]
 }
 
 # --- Applications ---------------------------------------------------------

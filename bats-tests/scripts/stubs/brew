@@ -2,7 +2,7 @@
 # brew stub. Controlled by env vars so tests can pick which formulas and
 # casks appear installed:
 #   BREW_HAS_GIT=1 / BREW_GIT_VERSION=x.y.z
-#   BREW_HAS_PNPM=1 / BREW_HAS_YARN=1
+#   BREW_HAS_PNPM=1 / BREW_HAS_YARN=1 / BREW_HAS_FIRA_CODE_NERD=1
 #   BREW_TAPS="owner/tap other/tap" / BREW_TAP_FAIL=1
 #   BREW_HAS_NVM=1 / BREW_NVM_PREFIX=/sandbox/path (default /opt/homebrew/opt/nvm)
 echo "brew $*" >> "$STUB_CALLS"
@@ -38,6 +38,13 @@ case "$1" in
     if [[ "$last_arg" == "yarn" ]]; then
       if [[ "$BREW_HAS_YARN" == "1" ]]; then
         echo "yarn"
+        exit 0
+      fi
+      exit 1
+    fi
+    if [[ "$last_arg" == "font-fira-code-nerd-font" ]]; then
+      if [[ "$BREW_HAS_FIRA_CODE_NERD" == "1" ]]; then
+        echo "font-fira-code-nerd-font"
         exit 0
       fi
       exit 1
