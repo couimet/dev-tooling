@@ -968,6 +968,11 @@ else
     fi
 fi
 
+# Set when the nvm-managed Node cannot be activated in the present
+# branch below, so the yarn section skips corepack enable instead of
+# landing the shim under a non-nvm Node.
+YARN_ENABLE_SKIPPED=0
+
 print_check_message "Node.js"
 node_major="$(node --version 2>/dev/null | sed -E 's/^v([0-9]+).*/\1/')"
 if ! check_command node || [[ "$node_major" != "$NODE_MAJOR_VERSION" ]]; then
@@ -983,17 +988,71 @@ if ! check_command node || [[ "$node_major" != "$NODE_MAJOR_VERSION" ]]; then
         note_followup "Install Node.js manually: https://nodejs.org/en/download"
     fi
 else
+    # The active node already reports the target major, but it may be a
+    # Homebrew or system install rather than the nvm-managed copy. When
+    # nvm is available, switch to its node so the corepack enable below
+    # lands the yarn shim next to nvm's node; a failed switch stops yarn
+    # provisioning so the shim cannot land under whatever node is active.
+    if command -v nvm &>/dev/null && [[ "$(command -v node)" != "$NVM_DIR/versions/node/"* ]]; then
+        if ! nvm use "$NODE_MAJOR_VERSION" &>/dev/null; then
+            report "warning" "Could not switch to the nvm-managed Node.js ${NODE_MAJOR_VERSION}; skipping the yarn install."
+            YARN_ENABLE_SKIPPED=1
+        fi
+    fi
     note_present "Node.js ${CHECKED_VERSION}"
 fi
 
-# --- pnpm warning ----------------------------------------------------------
+# --- yarn via corepack -----------------------------------------------------
 
-# pnpm installed through Homebrew sits outside corepack, the package
-# manager that ships with Node.js, leaving two pnpm versions around.
-# Surface it so it can be cleaned up when present.
+# corepack ships with Node.js and manages yarn's version, so enabling
+# yarn through it keeps yarn under the nvm-managed Node rather than a
+# Homebrew install that drags in its own Node.js. The corepack shim
+# lands in Node's bin directory, so yarn is available wherever nvm's
+# Node is.
+print_check_message "yarn"
+if check_command yarn; then
+    note_present "yarn ${CHECKED_VERSION}"
+elif [[ "$YARN_ENABLE_SKIPPED" == "1" ]]; then
+    # The Node.js present branch sets this when the nvm-managed Node
+    # could not be activated; enabling yarn here would land the shim
+    # next to a non-nvm Node, so skip it and leave a manual path.
+    report "error" "Skipping the yarn install because the nvm-managed Node.js ${NODE_MAJOR_VERSION} could not be activated."
+    note_followup "Switch to the nvm-managed Node.js (nvm use ${NODE_MAJOR_VERSION}), then enable yarn with: corepack enable yarn"
+else
+    if ! command -v corepack &>/dev/null; then
+        report "error" "corepack is not available; skipping the yarn install."
+        note_followup "Install corepack (npm install -g corepack), then enable yarn with: corepack enable yarn"
+    elif corepack enable yarn; then
+        # corepack enable only creates the shim; the first yarn probe
+        # downloads the pinned version and needs network access, so the
+        # version can legitimately come back unknown. Only record the
+        # install when a real version answered, and leave a manual
+        # follow-up otherwise.
+        yarn_version="$(cmd_version yarn)"
+        if [[ "$yarn_version" == "unknown" ]]; then
+            report "error" "corepack enabled yarn, but its version could not be determined; it may need network access on first use."
+            note_followup "Verify yarn works manually: yarn --version"
+        else
+            note_added "yarn ${yarn_version}"
+        fi
+    else
+        report "error" "corepack could not enable yarn."
+        note_followup "Enable yarn manually: corepack enable yarn"
+    fi
+fi
+
+# --- pnpm and yarn warnings -------------------------------------------------
+
+# pnpm or yarn installed through Homebrew sits outside corepack, the
+# package manager that ships with Node.js, leaving two versions around.
+# Surface either one so it can be cleaned up when present.
 if brew list pnpm &>/dev/null; then
     report "warning" "pnpm is installed through Homebrew, which can shadow the version managed by corepack."
     report "warning" "Suggested fix: brew uninstall pnpm, then enable it via corepack (corepack enable pnpm)."
+fi
+if brew list yarn &>/dev/null; then
+    report "warning" "yarn is installed through Homebrew, which can shadow the version managed by corepack."
+    report "warning" "Suggested fix: brew uninstall yarn, then enable it via corepack (corepack enable yarn)."
 fi
 
 # --- Applications ----------------------------------------------------------

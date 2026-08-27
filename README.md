@@ -14,7 +14,7 @@ For an unattended run, pass `--ide <vscode|cursor|both|skip>` and `--password-ma
 
 The script also installs the recommended IDE extensions into every IDE it finds on disk (VS Code and Cursor), independently of the `--ide` choice. Likewise, the 1Password CLI (`op`) is installed on every run, independently of the `--password-manager` choice, which covers the GUI apps only.
 
-The script also writes the nvm loader into `~/.zshrc` (`NVM_DIR` plus the `nvm.sh` and `bash_completion` sources), so the Node.js versions it installs stay available in every new terminal.
+The script also writes the nvm loader into `~/.zshrc` (`NVM_DIR` plus the `nvm.sh` and `bash_completion` sources), so the Node.js versions it installs stay available in every new terminal. It enables `yarn` through corepack (which ships with Node.js), so yarn stays under the nvm-managed Node rather than pulling in a separate Homebrew Node.
 
 #### Quick Install
 
