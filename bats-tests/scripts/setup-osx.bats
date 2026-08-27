@@ -742,6 +742,32 @@ EOF
   grep -qF "nvm use 24" "$STUB_CALLS"
 }
 
+@test "stops yarn provisioning when the nvm-managed node cannot be activated" {
+  baseline_env
+  # The active node reports the pinned major but is not nvm's, so the
+  # present branch tries nvm use; when that fails, corepack must not
+  # enable yarn under a non-nvm Node. corepack is stubbed as available
+  # so the assertion really catches the enable being skipped.
+  export FORCE_COMMAND_MISSING="yarn"
+  register_stub corepack
+  cat > "$HOME/.nvm/nvm.sh" <<'EOF'
+nvm() {
+  echo "nvm $*" >> "$STUB_CALLS"
+  [[ "$1" == "use" ]] && return 1
+  return 0
+}
+EOF
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  grep -qF "nvm use 24" "$STUB_CALLS"
+  [[ "$output" == *"Could not switch to the nvm-managed Node.js"* ]]
+  [[ "$output" == *"corepack enable yarn"* ]]
+  # The follow-up text above mentions the enable command, so only the
+  # stub log proves corepack enable yarn was not actually invoked.
+  run grep -qF "corepack enable yarn" "$STUB_CALLS"
+  [ "$status" -ne 0 ]
+}
+
 # --- pnpm and yarn warnings ------------------------------------------------
 
 @test "warns when pnpm is installed through brew" {

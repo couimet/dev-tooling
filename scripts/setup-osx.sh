@@ -968,6 +968,11 @@ else
     fi
 fi
 
+# Set when the nvm-managed Node cannot be activated in the present
+# branch below, so the yarn section skips corepack enable instead of
+# landing the shim under a non-nvm Node.
+YARN_ENABLE_SKIPPED=0
+
 print_check_message "Node.js"
 node_major="$(node --version 2>/dev/null | sed -E 's/^v([0-9]+).*/\1/')"
 if ! check_command node || [[ "$node_major" != "$NODE_MAJOR_VERSION" ]]; then
@@ -986,11 +991,12 @@ else
     # The active node already reports the target major, but it may be a
     # Homebrew or system install rather than the nvm-managed copy. When
     # nvm is available, switch to its node so the corepack enable below
-    # lands the yarn shim next to nvm's node; a failed switch only warns
-    # and leaves yarn to be enabled under whatever node is active.
+    # lands the yarn shim next to nvm's node; a failed switch stops yarn
+    # provisioning so the shim cannot land under whatever node is active.
     if command -v nvm &>/dev/null && [[ "$(command -v node)" != "$NVM_DIR/versions/node/"* ]]; then
         if ! nvm use "$NODE_MAJOR_VERSION" &>/dev/null; then
-            report "warning" "Could not switch to the nvm-managed Node.js ${NODE_MAJOR_VERSION}; yarn may be enabled under a different Node."
+            report "warning" "Could not switch to the nvm-managed Node.js ${NODE_MAJOR_VERSION}; skipping the yarn install."
+            YARN_ENABLE_SKIPPED=1
         fi
     fi
     note_present "Node.js ${CHECKED_VERSION}"
@@ -1006,6 +1012,12 @@ fi
 print_check_message "yarn"
 if check_command yarn; then
     note_present "yarn ${CHECKED_VERSION}"
+elif [[ "$YARN_ENABLE_SKIPPED" == "1" ]]; then
+    # The Node.js present branch sets this when the nvm-managed Node
+    # could not be activated; enabling yarn here would land the shim
+    # next to a non-nvm Node, so skip it and leave a manual path.
+    report "error" "Skipping the yarn install because the nvm-managed Node.js ${NODE_MAJOR_VERSION} could not be activated."
+    note_followup "Switch to the nvm-managed Node.js (nvm use ${NODE_MAJOR_VERSION}), then enable yarn with: corepack enable yarn"
 else
     if ! command -v corepack &>/dev/null; then
         report "error" "corepack is not available; skipping the yarn install."
