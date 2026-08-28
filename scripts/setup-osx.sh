@@ -36,7 +36,7 @@ HELPERS_BASE_URL="https://raw.githubusercontent.com/couimet/dev-tooling/main/scr
 # stamp-version-calver workflow. The seed placeholder is never shipped.
 # Each script carries its own copy so a stale script reports its own
 # version instead of inheriting a fresh one from the sourced helpers.
-VERSION="2026.08.27.1@cf0e6fd"
+VERSION="2026.08.27.1@84d03f2"
 
 # --- Shared helpers --------------------------------------------------------
 
