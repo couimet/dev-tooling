@@ -8,6 +8,12 @@ This project uses [Calendar Versioning](https://calver.org/) with the format `YY
 
 Entries are organized using [Keep a Changelog](https://keepachangelog.com/) categories: **Added**, **Changed**, **Fixed**, **Removed**. Not every release uses every category; include only the ones that apply.
 
+## 2026.08.27.1
+
+### Added
+
+- `setup-osx.sh` now installs [starship](https://starship.rs/), an opinionated cross-shell prompt, through Homebrew. The Nerd Font prerequisite listed on the starship site is covered by installing the FiraCode Nerd Font cask, leaving the per-terminal font selection as a documented follow-up. When no `~/.config/starship.toml` exists, the script writes its own opinionated prompt config; a config that has drifted from it is reported and left untouched, never overwritten. The `eval "$(starship init zsh)"` line is added to `~/.zshrc` so the prompt loads in every new shell. ([issues/19](https://github.com/couimet/dev-tooling/issues/19))
+
 ## 2026.08.27
 
 ### Added

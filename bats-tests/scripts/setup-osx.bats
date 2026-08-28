@@ -548,6 +548,80 @@ EOF
   [[ "$output" != *"nvm shell profile (~/.zshrc)"* ]]
 }
 
+@test "writes the loaders through a symlinked ~/.zshrc and keeps the link" {
+  baseline_env
+  # A dotfiles-style symlink must survive the profile writes: the append
+  # resolves to the link target so the link stays a link and the target
+  # receives the nvm and starship blocks.
+  mkdir -p "$HOME/dotfiles"
+  printf 'existing prompt settings\n' > "$HOME/dotfiles/zshrc"
+  ln -s "$HOME/dotfiles/zshrc" "$HOME/.zshrc"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [ -L "$HOME/.zshrc" ]
+  [ "$(readlink "$HOME/.zshrc")" = "$HOME/dotfiles/zshrc" ]
+  grep -qF 'existing prompt settings' "$HOME/dotfiles/zshrc"
+  grep -qF 'export NVM_DIR="$HOME/.nvm"' "$HOME/dotfiles/zshrc"
+  grep -qF 'eval "$(starship init zsh)"' "$HOME/dotfiles/zshrc"
+}
+
+@test "writes the loaders through a relatively symlinked ~/.zshrc and keeps the link" {
+  baseline_env
+  # A dotfiles-style symlink whose target is relative to $HOME must survive
+  # the profile writes: the append resolves through the relative link so the
+  # link stays a link and the relative target receives the blocks.
+  mkdir -p "$HOME/dotfiles"
+  printf 'existing prompt settings\n' > "$HOME/dotfiles/zshrc"
+  ln -s dotfiles/zshrc "$HOME/.zshrc"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [ -L "$HOME/.zshrc" ]
+  [ "$(readlink "$HOME/.zshrc")" = "dotfiles/zshrc" ]
+  grep -qF 'existing prompt settings' "$HOME/dotfiles/zshrc"
+  grep -qF 'export NVM_DIR="$HOME/.nvm"' "$HOME/dotfiles/zshrc"
+  grep -qF 'eval "$(starship init zsh)"' "$HOME/dotfiles/zshrc"
+}
+
+@test "writes the loaders through a chained symlinked ~/.zshrc and keeps both links" {
+  baseline_env
+  # A two-link chain (a relative link onto an absolute one) must survive the
+  # profile writes: the append follows every hop to the final target so each
+  # link stays a link and the target file receives the blocks.
+  mkdir -p "$HOME/dotfiles"
+  printf 'existing prompt settings\n' > "$HOME/dotfiles/zshrc"
+  ln -s "$HOME/dotfiles/zshrc" "$HOME/mid"
+  ln -s mid "$HOME/.zshrc"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [ -L "$HOME/.zshrc" ]
+  [ "$(readlink "$HOME/.zshrc")" = "mid" ]
+  [ -L "$HOME/mid" ]
+  [ "$(readlink "$HOME/mid")" = "$HOME/dotfiles/zshrc" ]
+  grep -qF 'existing prompt settings' "$HOME/dotfiles/zshrc"
+  grep -qF 'export NVM_DIR="$HOME/.nvm"' "$HOME/dotfiles/zshrc"
+  grep -qF 'eval "$(starship init zsh)"' "$HOME/dotfiles/zshrc"
+}
+
+@test "leaves an existing ~/.zshrc untouched when the copy fails" {
+  baseline_env
+  # A failing cp must not fall through to an empty temp: the original
+  # profile survives and the failure is reported, exercising the failed-copy
+  # path without stubbing cat or mv.
+  printf 'user shell config\n' > "$HOME/.zshrc"
+  cat > "$TEST_BIN/cp" <<'EOF'
+#!/bin/bash
+[[ "$1" == "$HOME/.zshrc" ]] && exit 1
+exec /bin/cp "$@"
+EOF
+  chmod +x "$TEST_BIN/cp"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  grep -qF 'user shell config' "$HOME/.zshrc"
+  ! grep -qF 'export NVM_DIR="$HOME/.nvm"' "$HOME/.zshrc"
+  ! grep -qF 'eval "$(starship init zsh)"' "$HOME/.zshrc"
+  [[ "$output" == *"Failed to write the nvm loader to ~/.zshrc"* ]]
+}
+
 @test "does not duplicate the nvm loader when ~/.zshrc already has it" {
   baseline_env
   cat > "$HOME/.zshrc" <<'EOF'
@@ -560,6 +634,22 @@ EOF
   [ "$status" -eq 0 ]
   [ "$(grep -c 'export NVM_DIR' "$HOME/.zshrc")" -eq 1 ]
   [[ "$output" == *"already configured"* ]]
+}
+
+@test "adds the nvm loader when only commented loader lines are present" {
+  baseline_env
+  cat > "$HOME/.zshrc" <<'EOF'
+# nvm (added by the dev-tooling setup script)
+# export NVM_DIR="$HOME/.nvm"
+# [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+# [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+EOF
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Added the nvm loader to ~/.zshrc"* ]]
+  [[ "$output" != *"already configured"* ]]
+  [ "$(grep -cE '^[[:space:]]*export[[:space:]]+NVM_DIR=' "$HOME/.zshrc")" -eq 1 ]
+  grep -qF '# export NVM_DIR="$HOME/.nvm"' "$HOME/.zshrc"
 }
 
 @test "repairs the loader when ~/.zshrc has only the NVM_DIR export" {
@@ -602,8 +692,11 @@ EOF
   export CURL_NVM_LATEST_FAIL=1
   run zsh "$OSX" --ide skip --password-manager skip
   [ "$status" -eq 0 ]
-  [ ! -f "$HOME/.zshrc" ]
   [[ "$output" != *"nvm shell profile"* ]]
+  # The starship step may create ~/.zshrc for its own init line, so assert
+  # on the loader specifically rather than on the file's existence.
+  run grep -q 'NVM_DIR' "$HOME/.zshrc"
+  [ "$status" -ne 0 ]
 }
 
 @test "uses a Homebrew-installed nvm without reinstalling" {
@@ -793,6 +886,228 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" != *"pnpm is installed through Homebrew"* ]]
   [[ "$output" != *"yarn is installed through Homebrew"* ]]
+}
+
+# --- Starship prompt --------------------------------------------------------
+
+# The opinionated starship config, mirrored from scripts/setup-osx.sh.
+write_expected_starship_config() {
+  mkdir -p "$HOME/.config"
+  cat > "$HOME/.config/starship.toml" <<'EOF'
+format = """
+$username@$hostname:$directory \
+$git_branch\
+$git_status\
+$nodejs\
+$ruby\
+$python\
+$nix_shell\
+$gcloud\
+$time\
+$line_break\
+$character"""
+
+[directory]
+truncation_length = 10  # how many parent dirs to show
+truncate_to_repo = false  # set to true if you want it to truncate at git repo root
+format = "[$path]($style)"
+style = "cyan bold"
+
+[username]
+show_always = true
+format = "[$user]($style)"
+style_user = "green bold"
+
+[hostname]
+ssh_only = false  # show even when not SSH
+format = "[$hostname]($style)"
+style = "green bold"
+
+[git_status]
+stashed = "" # "📦" # change the $ symbol
+untracked = "🆕" # change the ? symbol
+
+[python]
+disabled = true
+
+[nix_shell]
+disabled = true
+
+[gcloud]
+disabled = true
+
+[time]
+disabled = false
+format = '[$time]($style) '
+time_format = '%T'
+style = 'bold yellow'
+EOF
+}
+
+# A deliberately different starship config for the drift test.
+write_custom_starship_config() {
+  mkdir -p "$HOME/.config"
+  cat > "$HOME/.config/starship.toml" <<'EOF'
+format = "$custom_prompt"
+EOF
+}
+
+@test "starship is reported present with its version" {
+  baseline_env
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"starship is installed"* ]]
+  [[ "$output" == *"starship 1.22.1"* ]]
+}
+
+@test "installs starship via brew when it is missing" {
+  baseline_env
+  export FORCE_COMMAND_MISSING="starship"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" == *"✔ starship 1.22.1"* ]]
+  grep -qF "brew install starship" "$STUB_CALLS"
+}
+
+@test "installs the FiraCode Nerd Font when missing" {
+  baseline_env
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" == *"✔ FiraCode Nerd Font"* ]]
+  grep -qF "brew install --cask font-fira-code-nerd-font" "$STUB_CALLS"
+  [[ "$output" == *"Enable the Nerd Font in your terminals"* ]]
+}
+
+@test "reports the FiraCode Nerd Font present when installed" {
+  baseline_env
+  export BREW_HAS_FIRA_CODE_NERD=1
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" != *"✔ FiraCode Nerd Font"* ]]
+  [[ "$clean" == *"FiraCode Nerd Font"* ]]
+}
+
+@test "writes the opinionated starship config when it is missing" {
+  baseline_env
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" == *"✔ starship prompt config"* ]]
+  [ -f "$HOME/.config/starship.toml" ]
+  grep -q '\[directory\]' "$HOME/.config/starship.toml"
+}
+
+@test "reports the starship config present when it matches" {
+  baseline_env
+  write_expected_starship_config
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"starship prompt config"* ]]
+  [[ "$output" != *"drifted"* ]]
+}
+
+@test "warns when the starship config has drifted and leaves it untouched" {
+  baseline_env
+  write_custom_starship_config
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"has been customized"* ]]
+  [[ "$output" == *"drifted"* ]]
+  grep -qF 'format = "$custom_prompt"' "$HOME/.config/starship.toml"
+}
+
+@test "reports an error when the starship config target is a directory" {
+  baseline_env
+  # A directory in place of ~/.config/starship.toml makes the atomic write
+  # fail, exercising the config-write failure path without needing to stub
+  # cat or mv.
+  mkdir -p "$HOME/.config/starship.toml"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Could not write the starship prompt config."* ]]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" != *"✔ starship prompt config"* ]]
+  [ -d "$HOME/.config/starship.toml" ]
+  [ -z "$(ls -A "$HOME/.config/starship.toml")" ]
+}
+
+@test "writes the starship config through a symlinked config and keeps the link" {
+  baseline_env
+  # A dotfiles-style config symlink whose target is not yet written must
+  # survive the atomic write: the write resolves to the link target so the
+  # link stays a link and the target receives the embedded config.
+  mkdir -p "$HOME/dotfiles" "$HOME/.config"
+  ln -s "$HOME/dotfiles/starship.toml" "$HOME/.config/starship.toml"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [ -L "$HOME/.config/starship.toml" ]
+  [ "$(readlink "$HOME/.config/starship.toml")" = "$HOME/dotfiles/starship.toml" ]
+  [ -f "$HOME/dotfiles/starship.toml" ]
+  grep -q '\[directory\]' "$HOME/dotfiles/starship.toml"
+}
+
+@test "writes the starship config through a relatively symlinked config and keeps the link" {
+  baseline_env
+  # A dotfiles-style config symlink whose relative target does not exist yet
+  # must survive the atomic write: the write resolves to the relative target
+  # so the link stays a link and the absent target is created with the
+  # embedded config.
+  mkdir -p "$HOME/dotfiles" "$HOME/.config"
+  ln -s ../dotfiles/starship.toml "$HOME/.config/starship.toml"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [ -L "$HOME/.config/starship.toml" ]
+  [ "$(readlink "$HOME/.config/starship.toml")" = "../dotfiles/starship.toml" ]
+  [ -f "$HOME/dotfiles/starship.toml" ]
+  grep -q '\[directory\]' "$HOME/dotfiles/starship.toml"
+}
+
+@test "terminates on a circular starship config symlink and writes a regular file" {
+  baseline_env
+  # A two-link cycle at the config path must not hang the resolver: the
+  # write gives up at the link-follow cap and replaces the cycle with a
+  # regular file holding the embedded config.
+  mkdir -p "$HOME/.config"
+  ln -s b "$HOME/.config/starship.toml"
+  ln -s "$HOME/.config/starship.toml" "$HOME/.config/b"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [ -f "$HOME/.config/starship.toml" ]
+  [[ ! -L "$HOME/.config/starship.toml" ]]
+}
+
+@test "adds the starship init line to ~/.zshrc when missing" {
+  baseline_env
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" == *"✔ starship shell profile"* ]]
+  grep -qF 'eval "$(starship init zsh)"' "$HOME/.zshrc"
+}
+
+@test "reports the starship init line present when already configured" {
+  baseline_env
+  printf '\neval "$(starship init zsh)"\n' >> "$HOME/.zshrc"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" != *"✔ starship shell profile"* ]]
+  [[ "$clean" == *"starship shell profile"* ]]
+  [ "$(grep -cF 'eval "$(starship init zsh)"' "$HOME/.zshrc")" -eq 1 ]
+}
+
+@test "adds the starship init line when only a commented one is present" {
+  baseline_env
+  printf '\n# eval "$(starship init zsh)"\n' >> "$HOME/.zshrc"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" == *"✔ starship shell profile"* ]]
+  grep -qF '# eval "$(starship init zsh)"' "$HOME/.zshrc"
+  [ "$(grep -cE '^[[:space:]]*eval[[:space:]]+"\$\(starship init zsh\)"' "$HOME/.zshrc")" -eq 1 ]
 }
 
 # --- Applications ---------------------------------------------------------

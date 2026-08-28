@@ -613,6 +613,83 @@ check_oh_my_zsh() {
     return 0
 }
 
+# True when the profile has the literal line active: the line contains the
+# literal and its first non-whitespace character is not a comment marker.
+# A commented-out loader line must not be mistaken for a configured one,
+# since the gate would then skip adding the active command. The literal is
+# matched with index() so no regex escaping is needed for $, [, ] or $().
+profile_has_active_line() {
+    local profile="$1" literal="$2"
+    awk -v pat="$literal" 'index($0, pat) && $0 !~ /^[[:space:]]*#/' "$profile" 2>/dev/null | grep -q .
+}
+
+# Resolves a path that is a symlink to the file it ultimately names, so an
+# atomic write lands in the link target instead of replacing the link with a
+# regular file. Follows chained links with plain readlink (readlink -f is
+# unavailable before macOS 26), resolving relative targets against the link's
+# directory and capping the chase at 40 hops so a circular chain cannot
+# hang; a broken link resolves to its absent target, which the write
+# functions then create. Echoes the resolved path. The parameter is not
+# named `path` because zsh's `path` array backs PATH and shadowing it in a
+# function breaks command lookup inside the function.
+resolve_write_target() {
+    local current="$1" target
+    for _ in {1..40}; do
+        [[ -L "$current" ]] || break
+        target="$(readlink "$current" 2>/dev/null)" || break
+        if [[ "$target" == /* ]]; then
+            current="$target"
+        else
+            current="$(dirname "$current")/$target"
+        fi
+    done
+    printf '%s\n' "$current"
+}
+
+# Appends a block to a file atomically: copies the file to a same-directory
+# temp (or starts an empty temp when the file does not yet exist), appends
+# stdin to the temp, then mv's it over the original, so an interrupted run
+# leaves the original file intact and the next run repairs cleanly. A
+# symlinked target resolves to the file it names, so the link stays intact
+# and the block lands in its target. Returns nonzero when the target exists
+# but is not a regular file, or when copying an existing target fails, so a
+# write into a directory or a failed copy is reported instead of replacing
+# the profile.
+append_atomic() {
+    local file="$1" tmp
+    file="$(resolve_write_target "$file")"
+    [[ -f "$file" || ! -e "$file" ]] || return 1
+    tmp="${file}.tmp.$$"
+    if ! cp "$file" "$tmp" 2>/dev/null; then
+        [[ ! -e "$file" ]] || { rm -f "$tmp"; return 1; }
+        : > "$tmp" || { rm -f "$tmp"; return 1; }
+    fi
+    if cat >> "$tmp" && mv "$tmp" "$file"; then
+        return 0
+    fi
+    rm -f "$tmp"
+    return 1
+}
+
+# Writes a block to a file atomically: writes stdin to a same-directory temp
+# then mv's it over the target, so an interrupted run never leaves a
+# truncated file that a re-run would mistake for existing content. A
+# symlinked target resolves to the file it names, so the link stays intact
+# and the block lands in its target. Returns nonzero when the target exists
+# but is not a regular file, so a write into a directory path is reported as
+# a failure instead of moving the temp into it.
+atomic_write() {
+    local file="$1" tmp
+    file="$(resolve_write_target "$file")"
+    [[ -f "$file" || ! -e "$file" ]] || return 1
+    tmp="${file}.tmp.$$"
+    if cat > "$tmp" && mv "$tmp" "$file"; then
+        return 0
+    fi
+    rm -f "$tmp"
+    return 1
+}
+
 # Makes nvm load in every new shell. nvm's own installer (and brew's
 # caveat) require ~/.nvm to exist and the shell profile to export NVM_DIR
 # and source nvm.sh plus its bash completion; the nvm block above only
@@ -628,9 +705,9 @@ ensure_nvm_profile() {
         # its completion live in the keg opt prefix, so the gate and the
         # written lines carry the concrete brew paths.
         # shellcheck disable=SC2016  # the literal $HOME in the export is the point
-        if grep -qF 'export NVM_DIR="$HOME/.nvm"' "$profile" 2>/dev/null \
-            && grep -qF "[ -s \"$NVM_BREW_PREFIX/nvm.sh\" ]" "$profile" 2>/dev/null \
-            && grep -qF "[ -s \"$NVM_BREW_PREFIX/etc/bash_completion.d/nvm\" ]" "$profile" 2>/dev/null; then
+        if profile_has_active_line "$profile" 'export NVM_DIR="$HOME/.nvm"' \
+            && profile_has_active_line "$profile" "[ -s \"$NVM_BREW_PREFIX/nvm.sh\" ]" \
+            && profile_has_active_line "$profile" "[ -s \"$NVM_BREW_PREFIX/etc/bash_completion.d/nvm\" ]"; then
             report "success" "nvm shell profile is already configured in ~/.zshrc"
             note_present "nvm shell profile (~/.zshrc)"
             return 0
@@ -639,7 +716,7 @@ ensure_nvm_profile() {
         # escaped so NVM_DIR still resolves at login time. A failed append
         # is reported and returns nonzero so the run never records a
         # loader that did not land in the profile.
-        if ! cat >> "$profile" <<EOF
+        if ! append_atomic "$profile" <<EOF
 
 # nvm (added by the dev-tooling setup script)
 export NVM_DIR="\$HOME/.nvm"
@@ -660,22 +737,22 @@ EOF
     # configured. Each pattern is quoted so the literal $HOME and $NVM_DIR
     # are what is searched for in the profile.
     # shellcheck disable=SC2016  # the literal $HOME and $NVM_DIR are the point
-    if grep -qF 'export NVM_DIR="$HOME/.nvm"' "$profile" 2>/dev/null \
-        && grep -qF '[ -s "$NVM_DIR/nvm.sh" ]' "$profile" 2>/dev/null \
-        && grep -qF '[ -s "$NVM_DIR/bash_completion" ]' "$profile" 2>/dev/null; then
+    if profile_has_active_line "$profile" 'export NVM_DIR="$HOME/.nvm"' \
+        && profile_has_active_line "$profile" '[ -s "$NVM_DIR/nvm.sh" ]' \
+        && profile_has_active_line "$profile" '[ -s "$NVM_DIR/bash_completion" ]'; then
         report "success" "nvm shell profile is already configured in ~/.zshrc"
         note_present "nvm shell profile (~/.zshrc)"
         return 0
     fi
     # Quoted heredoc so the literal $HOME and $NVM_DIR land in the
     # profile and resolve at login time instead of during this run.
-    # The append is atomic: the whole block is written together, so the
-    # export always lands before the sources even when repairing a partial
-    # state, and an already-present line is merely duplicated (same value,
-    # idempotent) rather than reordered. A failed append is reported and
-    # returns nonzero so the run never records a loader that did not land
-    # in the profile.
-    if ! cat >> "$profile" <<'EOF'
+    # The append is atomic: the whole block is written to a same-directory
+    # temp that is mv'd into place, so the export always lands before the
+    # sources even when repairing a partial state, and an already-present
+    # line is merely duplicated (same value, idempotent) rather than
+    # reordered. A failed append is reported and returns nonzero so the run
+    # never records a loader that did not land in the profile.
+    if ! append_atomic "$profile" <<'EOF'
 
 # nvm (added by the dev-tooling setup script)
 export NVM_DIR="$HOME/.nvm"
@@ -689,6 +766,89 @@ EOF
     fi
     report "info" "Added the nvm loader to ~/.zshrc"
     note_added "nvm shell profile (~/.zshrc)"
+    return 0
+}
+
+# The opinionated starship.toml this script installs and compares against.
+# Embedded here so the script is the source of truth: the config is written
+# as-is when missing and drift is detected by byte comparison. Trailing
+# whitespace is significant, so the heredoc is quoted and never edited.
+starship_expected_config() {
+    cat <<'EOF'
+format = """
+$username@$hostname:$directory \
+$git_branch\
+$git_status\
+$nodejs\
+$ruby\
+$python\
+$nix_shell\
+$gcloud\
+$time\
+$line_break\
+$character"""
+
+[directory]
+truncation_length = 10  # how many parent dirs to show
+truncate_to_repo = false  # set to true if you want it to truncate at git repo root
+format = "[$path]($style)"
+style = "cyan bold"
+
+[username]
+show_always = true
+format = "[$user]($style)"
+style_user = "green bold"
+
+[hostname]
+ssh_only = false  # show even when not SSH
+format = "[$hostname]($style)"
+style = "green bold"
+
+[git_status]
+stashed = "" # "📦" # change the $ symbol
+untracked = "🆕" # change the ? symbol
+
+[python]
+disabled = true
+
+[nix_shell]
+disabled = true
+
+[gcloud]
+disabled = true
+
+[time]
+disabled = false
+format = '[$time]($style) '
+time_format = '%T'
+style = 'bold yellow'
+EOF
+}
+
+# Appends the starship init line to ~/.zshrc so the prompt loads in every
+# new shell. Idempotent: appends the block only when the eval line is
+# missing, so re-runs never duplicate it. Modeled on ensure_nvm_profile;
+# must run after the oh-my-zsh step, whose installer can replace ~/.zshrc.
+ensure_starship_profile() {
+    local profile="$HOME/.zshrc"
+    # shellcheck disable=SC2016  # the literal $() in the profile line is the point
+    if profile_has_active_line "$profile" 'eval "$(starship init zsh)"'; then
+        report "success" "starship shell profile is already configured in ~/.zshrc"
+        note_present "starship shell profile (~/.zshrc)"
+        return 0
+    fi
+    if ! append_atomic "$profile" <<'EOF'
+
+# Starship prompt (added by the dev-tooling setup script)
+eval "$(starship init zsh)"
+EOF
+    then
+        report "error" "Failed to write the starship init line to ~/.zshrc"
+        note_followup "Add to ~/.zshrc: eval \"\$(starship init zsh)\""
+        return 1
+    fi
+    report "info" "Added the starship init line to ~/.zshrc"
+    note_added "starship shell profile (~/.zshrc)"
     return 0
 }
 
@@ -1201,6 +1361,64 @@ fi
 if [[ -n "$NVM_LAYOUT" ]]; then
     print_check_message "nvm shell profile" "is configured in ~/.zshrc"
     ensure_nvm_profile
+fi
+
+# --- Starship prompt -------------------------------------------------------
+
+# starship is the opinionated prompt: brew provides the binary, a Nerd Font
+# is the prerequisite the starship site lists (installed here, enabled per
+# terminal by the user), and ~/.config/starship.toml is written from the
+# embedded starship_expected_config when missing. A config that differs is
+# reported as drift and never overwritten.
+print_check_message "Starship"
+starship_present=false
+if check_command starship; then
+    starship_present=true
+    note_present "starship ${CHECKED_VERSION}"
+else
+    if brew_install starship; then
+        starship_present=true
+        note_added "starship $(cmd_version starship)"
+    fi
+fi
+
+if [[ "$starship_present" == true ]]; then
+    # The starship website lists "a Nerd Font installed and enabled in your
+    # terminal" as a prerequisite. The cask installs the font; enabling it
+    # per terminal stays a manual step so this script does not rewrite
+    # iTerm2 plists or IDE settings files.
+    print_check_message "FiraCode Nerd Font" "is installed"
+    if brew list --cask font-fira-code-nerd-font &>/dev/null; then
+        note_present "FiraCode Nerd Font"
+    else
+        if brew_install --cask font-fira-code-nerd-font; then
+            note_added "FiraCode Nerd Font"
+            note_followup "Enable the Nerd Font in your terminals (iTerm2: Preferences -> Profiles -> Text -> Font = 'FiraCode Nerd Font Mono'; VS Code/Cursor: terminal.integrated.fontFamily = 'FiraCode Nerd Font Mono')."
+        fi
+    fi
+
+    # Opinionated prompt config. Written only when missing; an existing file
+    # that differs from the embedded config is user customization and is
+    # surfaced as drift rather than clobbered.
+    mkdir -p "$HOME/.config"
+    if [[ ! -f "$HOME/.config/starship.toml" ]]; then
+        if starship_expected_config | atomic_write "$HOME/.config/starship.toml"; then
+            note_added "starship prompt config (~/.config/starship.toml)"
+        else
+            report "error" "Could not write the starship prompt config."
+            note_followup "Write ~/.config/starship.toml from the setup script's starship_expected_config."
+        fi
+    elif cmp -s "$HOME/.config/starship.toml" <(starship_expected_config); then
+        note_present "starship prompt config (~/.config/starship.toml)"
+    else
+        report "warning" "Your ~/.config/starship.toml has been customized; it has drifted from the opinionated starship config in setup-osx.sh."
+        note_followup "Review ~/.config/starship.toml against the setup script's starship_expected_config; the custom version is left untouched."
+    fi
+
+    # Load starship in every new shell. Runs after the oh-my-zsh step (see
+    # the nvm profile note), so the append lands in the final ~/.zshrc.
+    print_check_message "starship shell profile" "is configured in ~/.zshrc"
+    ensure_starship_profile
 fi
 
 # --- Summary ---------------------------------------------------------------

@@ -16,6 +16,8 @@ The script also installs the recommended IDE extensions into every IDE it finds 
 
 The script also writes the nvm loader into `~/.zshrc` (`NVM_DIR` plus the `nvm.sh` and `bash_completion` sources), so the Node.js versions it installs stay available in every new terminal. It enables `yarn` through corepack (which ships with Node.js), so yarn stays under the nvm-managed Node rather than pulling in a separate Homebrew Node.
 
+The script sets up a starship prompt too: it installs starship through Homebrew along with the FiraCode Nerd Font that the starship site lists as a prerequisite, writes its opinionated `~/.config/starship.toml` when none exists (and warns, without overwriting, when an existing one has drifted from it), and adds the `eval "$(starship init zsh)"` line to `~/.zshrc`. Enabling the Nerd Font in each terminal (iTerm2, VS Code, or Cursor) is left as a documented follow-up step.
+
 #### Quick Install
 
 If you want to run it as is -- without even downloading it -- you can do so by running the following command:
