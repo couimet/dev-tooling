@@ -548,6 +548,43 @@ EOF
   [[ "$output" != *"nvm shell profile (~/.zshrc)"* ]]
 }
 
+@test "writes the loaders through a symlinked ~/.zshrc and keeps the link" {
+  baseline_env
+  # A dotfiles-style symlink must survive the profile writes: the append
+  # resolves to the link target so the link stays a link and the target
+  # receives the nvm and starship blocks.
+  mkdir -p "$HOME/dotfiles"
+  printf 'existing prompt settings\n' > "$HOME/dotfiles/zshrc"
+  ln -s "$HOME/dotfiles/zshrc" "$HOME/.zshrc"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [ -L "$HOME/.zshrc" ]
+  [ "$(readlink "$HOME/.zshrc")" = "$HOME/dotfiles/zshrc" ]
+  grep -qF 'existing prompt settings' "$HOME/dotfiles/zshrc"
+  grep -qF 'export NVM_DIR="$HOME/.nvm"' "$HOME/dotfiles/zshrc"
+  grep -qF 'eval "$(starship init zsh)"' "$HOME/dotfiles/zshrc"
+}
+
+@test "leaves an existing ~/.zshrc untouched when the copy fails" {
+  baseline_env
+  # A failing cp must not fall through to an empty temp: the original
+  # profile survives and the failure is reported, exercising the failed-copy
+  # path without stubbing cat or mv.
+  printf 'user shell config\n' > "$HOME/.zshrc"
+  cat > "$TEST_BIN/cp" <<'EOF'
+#!/bin/bash
+[[ "$1" == "$HOME/.zshrc" ]] && exit 1
+exec /bin/cp "$@"
+EOF
+  chmod +x "$TEST_BIN/cp"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  grep -qF 'user shell config' "$HOME/.zshrc"
+  ! grep -qF 'export NVM_DIR="$HOME/.nvm"' "$HOME/.zshrc"
+  ! grep -qF 'eval "$(starship init zsh)"' "$HOME/.zshrc"
+  [[ "$output" == *"Failed to write the nvm loader to ~/.zshrc"* ]]
+}
+
 @test "does not duplicate the nvm loader when ~/.zshrc already has it" {
   baseline_env
   cat > "$HOME/.zshrc" <<'EOF'
@@ -958,6 +995,21 @@ EOF
   [[ "$clean" != *"✔ starship prompt config"* ]]
   [ -d "$HOME/.config/starship.toml" ]
   [ -z "$(ls -A "$HOME/.config/starship.toml")" ]
+}
+
+@test "writes the starship config through a symlinked config and keeps the link" {
+  baseline_env
+  # A dotfiles-style config symlink whose target is not yet written must
+  # survive the atomic write: the write resolves to the link target so the
+  # link stays a link and the target receives the embedded config.
+  mkdir -p "$HOME/dotfiles" "$HOME/.config"
+  ln -s "$HOME/dotfiles/starship.toml" "$HOME/.config/starship.toml"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [ -L "$HOME/.config/starship.toml" ]
+  [ "$(readlink "$HOME/.config/starship.toml")" = "$HOME/dotfiles/starship.toml" ]
+  [ -f "$HOME/dotfiles/starship.toml" ]
+  grep -q '\[directory\]' "$HOME/dotfiles/starship.toml"
 }
 
 @test "adds the starship init line to ~/.zshrc when missing" {

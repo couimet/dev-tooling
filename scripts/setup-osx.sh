@@ -623,20 +623,43 @@ profile_has_active_line() {
     awk -v pat="$literal" 'index($0, pat) && $0 !~ /^[[:space:]]*#/' "$profile" 2>/dev/null | grep -q .
 }
 
+# Resolves a path that is a symlink to the file it ultimately names, so an
+# atomic write lands in the link target instead of replacing the link with a
+# regular file. Uses readlink -f (supported on macOS) to follow chains and
+# relative targets; a broken link resolves to its absent target, which the
+# write functions then create. Echoes the resolved path. The parameter is
+# not named `path` because zsh's `path` array backs PATH and shadowing it in
+# a function breaks command lookup inside the function.
+resolve_write_target() {
+    local file_path="$1" target
+    if [[ -L "$file_path" ]]; then
+        target="$(readlink -f "$file_path" 2>/dev/null)"
+        printf '%s\n' "${target:-$(readlink "$file_path" 2>/dev/null)}"
+    else
+        printf '%s\n' "$file_path"
+    fi
+}
+
 # Appends a block to a file atomically: copies the file to a same-directory
 # temp (or starts an empty temp when the file does not yet exist), appends
 # stdin to the temp, then mv's it over the original, so an interrupted run
-# leaves the original file intact and the next run repairs cleanly. Returns
-# nonzero when the target exists but is not a regular file, so a write into
-# a directory path is reported as a failure instead of moving the temp into it.
+# leaves the original file intact and the next run repairs cleanly. A
+# symlinked target resolves to the file it names, so the link stays intact
+# and the block lands in its target. Returns nonzero when the target exists
+# but is not a regular file, or when copying an existing target fails, so a
+# write into a directory or a failed copy is reported instead of replacing
+# the profile.
 append_atomic() {
     local file="$1" tmp
+    file="$(resolve_write_target "$file")"
     [[ -f "$file" || ! -e "$file" ]] || return 1
     tmp="${file}.tmp.$$"
-    if cp "$file" "$tmp" 2>/dev/null || : > "$tmp"; then
-        if cat >> "$tmp" && mv "$tmp" "$file"; then
-            return 0
-        fi
+    if ! cp "$file" "$tmp" 2>/dev/null; then
+        [[ ! -e "$file" ]] || { rm -f "$tmp"; return 1; }
+        : > "$tmp" || { rm -f "$tmp"; return 1; }
+    fi
+    if cat >> "$tmp" && mv "$tmp" "$file"; then
+        return 0
     fi
     rm -f "$tmp"
     return 1
@@ -644,11 +667,14 @@ append_atomic() {
 
 # Writes a block to a file atomically: writes stdin to a same-directory temp
 # then mv's it over the target, so an interrupted run never leaves a
-# truncated file that a re-run would mistake for existing content. Returns
-# nonzero when the target exists but is not a regular file, so a write into
-# a directory path is reported as a failure instead of moving the temp into it.
+# truncated file that a re-run would mistake for existing content. A
+# symlinked target resolves to the file it names, so the link stays intact
+# and the block lands in its target. Returns nonzero when the target exists
+# but is not a regular file, so a write into a directory path is reported as
+# a failure instead of moving the temp into it.
 atomic_write() {
     local file="$1" tmp
+    file="$(resolve_write_target "$file")"
     [[ -f "$file" || ! -e "$file" ]] || return 1
     tmp="${file}.tmp.$$"
     if cat > "$tmp" && mv "$tmp" "$file"; then
