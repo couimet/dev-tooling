@@ -625,19 +625,25 @@ profile_has_active_line() {
 
 # Resolves a path that is a symlink to the file it ultimately names, so an
 # atomic write lands in the link target instead of replacing the link with a
-# regular file. Uses readlink -f (supported on macOS) to follow chains and
-# relative targets; a broken link resolves to its absent target, which the
-# write functions then create. Echoes the resolved path. The parameter is
-# not named `path` because zsh's `path` array backs PATH and shadowing it in
-# a function breaks command lookup inside the function.
+# regular file. Follows chained links with plain readlink (readlink -f is
+# unavailable before macOS 26), resolving relative targets against the link's
+# directory and capping the chase at 40 hops so a circular chain cannot
+# hang; a broken link resolves to its absent target, which the write
+# functions then create. Echoes the resolved path. The parameter is not
+# named `path` because zsh's `path` array backs PATH and shadowing it in a
+# function breaks command lookup inside the function.
 resolve_write_target() {
-    local file_path="$1" target
-    if [[ -L "$file_path" ]]; then
-        target="$(readlink -f "$file_path" 2>/dev/null)"
-        printf '%s\n' "${target:-$(readlink "$file_path" 2>/dev/null)}"
-    else
-        printf '%s\n' "$file_path"
-    fi
+    local current="$1" target
+    for _ in {1..40}; do
+        [[ -L "$current" ]] || break
+        target="$(readlink "$current" 2>/dev/null)" || break
+        if [[ "$target" == /* ]]; then
+            current="$target"
+        else
+            current="$(dirname "$current")/$target"
+        fi
+    done
+    printf '%s\n' "$current"
 }
 
 # Appends a block to a file atomically: copies the file to a same-directory

@@ -565,6 +565,43 @@ EOF
   grep -qF 'eval "$(starship init zsh)"' "$HOME/dotfiles/zshrc"
 }
 
+@test "writes the loaders through a relatively symlinked ~/.zshrc and keeps the link" {
+  baseline_env
+  # A dotfiles-style symlink whose target is relative to $HOME must survive
+  # the profile writes: the append resolves through the relative link so the
+  # link stays a link and the relative target receives the blocks.
+  mkdir -p "$HOME/dotfiles"
+  printf 'existing prompt settings\n' > "$HOME/dotfiles/zshrc"
+  ln -s dotfiles/zshrc "$HOME/.zshrc"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [ -L "$HOME/.zshrc" ]
+  [ "$(readlink "$HOME/.zshrc")" = "dotfiles/zshrc" ]
+  grep -qF 'existing prompt settings' "$HOME/dotfiles/zshrc"
+  grep -qF 'export NVM_DIR="$HOME/.nvm"' "$HOME/dotfiles/zshrc"
+  grep -qF 'eval "$(starship init zsh)"' "$HOME/dotfiles/zshrc"
+}
+
+@test "writes the loaders through a chained symlinked ~/.zshrc and keeps both links" {
+  baseline_env
+  # A two-link chain (a relative link onto an absolute one) must survive the
+  # profile writes: the append follows every hop to the final target so each
+  # link stays a link and the target file receives the blocks.
+  mkdir -p "$HOME/dotfiles"
+  printf 'existing prompt settings\n' > "$HOME/dotfiles/zshrc"
+  ln -s "$HOME/dotfiles/zshrc" "$HOME/mid"
+  ln -s mid "$HOME/.zshrc"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [ -L "$HOME/.zshrc" ]
+  [ "$(readlink "$HOME/.zshrc")" = "mid" ]
+  [ -L "$HOME/mid" ]
+  [ "$(readlink "$HOME/mid")" = "$HOME/dotfiles/zshrc" ]
+  grep -qF 'existing prompt settings' "$HOME/dotfiles/zshrc"
+  grep -qF 'export NVM_DIR="$HOME/.nvm"' "$HOME/dotfiles/zshrc"
+  grep -qF 'eval "$(starship init zsh)"' "$HOME/dotfiles/zshrc"
+}
+
 @test "leaves an existing ~/.zshrc untouched when the copy fails" {
   baseline_env
   # A failing cp must not fall through to an empty temp: the original
@@ -1010,6 +1047,36 @@ EOF
   [ "$(readlink "$HOME/.config/starship.toml")" = "$HOME/dotfiles/starship.toml" ]
   [ -f "$HOME/dotfiles/starship.toml" ]
   grep -q '\[directory\]' "$HOME/dotfiles/starship.toml"
+}
+
+@test "writes the starship config through a relatively symlinked config and keeps the link" {
+  baseline_env
+  # A dotfiles-style config symlink whose relative target does not exist yet
+  # must survive the atomic write: the write resolves to the relative target
+  # so the link stays a link and the absent target is created with the
+  # embedded config.
+  mkdir -p "$HOME/dotfiles" "$HOME/.config"
+  ln -s ../dotfiles/starship.toml "$HOME/.config/starship.toml"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [ -L "$HOME/.config/starship.toml" ]
+  [ "$(readlink "$HOME/.config/starship.toml")" = "../dotfiles/starship.toml" ]
+  [ -f "$HOME/dotfiles/starship.toml" ]
+  grep -q '\[directory\]' "$HOME/dotfiles/starship.toml"
+}
+
+@test "terminates on a circular starship config symlink and writes a regular file" {
+  baseline_env
+  # A two-link cycle at the config path must not hang the resolver: the
+  # write gives up at the link-follow cap and replaces the cycle with a
+  # regular file holding the embedded config.
+  mkdir -p "$HOME/.config"
+  ln -s b "$HOME/.config/starship.toml"
+  ln -s "$HOME/.config/starship.toml" "$HOME/.config/b"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [ -f "$HOME/.config/starship.toml" ]
+  [[ ! -L "$HOME/.config/starship.toml" ]]
 }
 
 @test "adds the starship init line to ~/.zshrc when missing" {
