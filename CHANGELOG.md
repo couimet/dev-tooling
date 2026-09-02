@@ -12,7 +12,7 @@ Entries are organized using [Keep a Changelog](https://keepachangelog.com/) cate
 
 ### Added
 
-- `setup-osx.sh` now force-loads a set of developer-focused Chrome extensions by writing Chrome's per-user "External Extensions" preference files under `~/Library/Application Support/Google/Chrome/External Extensions/`, one JSON file per extension pointing at the Chrome Web Store update URL. The list covers React Developer Tools, JSONVue, 1Password, Redux DevTools, and Vue.js devtools. The write is idempotent, so an already present extension is reported rather than rewritten; newly added extensions take effect after Chrome restarts, which the run summary flags as a follow-up. ([issues/17](https://github.com/couimet/dev-tooling/issues/17))
+- `setup-osx.sh` now force-loads a set of developer-focused Chrome extensions by writing Chrome's per-user "External Extensions" preference files under `~/Library/Application Support/Google/Chrome/External Extensions/`, one JSON file per extension pointing at the Chrome Web Store update URL. The list covers React Developer Tools, JSONVue, 1Password, Redux DevTools, and Vue.js devtools. The write is idempotent, so an already present extension is reported rather than rewritten; newly added extensions take effect only after Chrome restarts and are enabled in chrome://extensions, which the run summary flags as a follow-up. ([issues/17](https://github.com/couimet/dev-tooling/issues/17))
 
 ## 2026.08.27.1
 

@@ -1180,7 +1180,7 @@ chrome_ext_dir() {
     [ -f "$(chrome_ext_dir)/$id.json" ]
     grep -q 'external_update_url' "$(chrome_ext_dir)/$id.json"
   done
-  [[ "$output" == *"Restart Chrome to load the newly added extensions"* ]]
+  [[ "$output" == *"Restart Chrome, then enable the newly added extensions in chrome://extensions"* ]]
 }
 
 @test "reports existing Chrome extension preference files as present" {

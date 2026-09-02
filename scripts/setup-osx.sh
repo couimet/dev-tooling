@@ -32,8 +32,9 @@ IDE_EXTENSIONS=(
 # per-user "External Extensions" JSON preference files Chrome reads on
 # launch. Each entry is "<extension-id>;<display name>": the id is the
 # 32-hex-char Web Store identifier, the display name is what the run
-# summary shows. Newly written files only take effect after Chrome
-# restarts, so a fresh write also records a restart follow-up.
+# summary shows. Newly written files only take effect once Chrome
+# restarts and the extension is enabled in chrome://extensions, so a
+# fresh write records both actions as a follow-up.
 CHROME_EXTENSIONS=(
     "fmkadmapgofadopljbjfkapdkoienihi;React Developer Tools"
     "chklaanhfefbnpoihckbnefhakgolnmc;JSONVue"
@@ -936,8 +937,10 @@ install_ide_extensions() {
 # extension, named after its Web Store ID, pointing at the Web Store
 # update URL. Writing the file is idempotent, so an existing file is
 # reported as present rather than rewritten. Chrome picks the files up
-# on launch, so anything newly written also records a restart
-# follow-up. The step is skipped when Chrome is not on disk; APPS_DIR
+# on launch, so a newly written file only takes effect once Chrome
+# restarts and the extension is enabled in chrome://extensions; a fresh
+# write records both as a follow-up. The step is skipped when Chrome is
+# not on disk; APPS_DIR
 # lets tests point the check at a fake Applications directory, real
 # runs keep the default.
 install_chrome_extensions() {
@@ -967,7 +970,7 @@ install_chrome_extensions() {
         fi
     done
     if (( added )); then
-        note_followup "Restart Chrome to load the newly added extensions"
+        note_followup "Restart Chrome, then enable the newly added extensions in chrome://extensions"
     fi
 }
 
