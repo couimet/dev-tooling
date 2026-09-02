@@ -28,6 +28,21 @@ IDE_EXTENSIONS=(
     couimet.rangelink-vscode-extension
 )
 
+# Chrome extensions force-loaded for the current user by writing the
+# per-user "External Extensions" JSON preference files Chrome reads on
+# launch. Each entry is "<extension-id>;<display name>": the id is the
+# 32-hex-char Web Store identifier, the display name is what the run
+# summary shows. Newly written files only take effect once Chrome
+# restarts and the extension is enabled in chrome://extensions, so a
+# fresh write records both actions as a follow-up.
+CHROME_EXTENSIONS=(
+    "fmkadmapgofadopljbjfkapdkoienihi;React Developer Tools"
+    "chklaanhfefbnpoihckbnefhakgolnmc;JSONVue"
+    "aeblfdkhhhdcdjpifhhbdiojplfjncoa;1Password"
+    "lmhkpmbekcpmknklioeibfkpmmfibljd;Redux DevTools"
+    "nhdogjmejiglipccpnnnanhbledajbpd;Vue.js devtools"
+)
+
 # Base URL the script refreshes its shared helpers from when it runs
 # from a raw pipe instead of a checkout; point it at a fork to test.
 HELPERS_BASE_URL="https://raw.githubusercontent.com/couimet/dev-tooling/main/scripts"
@@ -917,6 +932,48 @@ install_ide_extensions() {
     done
 }
 
+# Force-loads the Chrome extension list through Chrome's per-user
+# "External Extensions" preference directory: one JSON file per
+# extension, named after its Web Store ID, pointing at the Web Store
+# update URL. Writing the file is idempotent, so an existing file is
+# reported as present rather than rewritten. Chrome picks the files up
+# on launch, so a newly written file only takes effect once Chrome
+# restarts and the extension is enabled in chrome://extensions; a fresh
+# write records both as a follow-up. The step is skipped when Chrome is
+# not on disk; APPS_DIR
+# lets tests point the check at a fake Applications directory, real
+# runs keep the default.
+install_chrome_extensions() {
+    local entry id name json_path added=0
+    if [[ ! -d "${APPS_DIR:-/Applications}/Google Chrome.app" ]]; then
+        report "info" "No Chrome installation found; skipping its extensions."
+        return 0
+    fi
+    print_check_message "Chrome extensions"
+    local ext_dir="$HOME/Library/Application Support/Google/Chrome/External Extensions"
+    for entry in "${CHROME_EXTENSIONS[@]}"; do
+        id="${entry%%;*}"
+        name="${entry#*;}"
+        json_path="$ext_dir/$id.json"
+        if [[ -f "$json_path" ]]; then
+            note_present "Chrome: $name"
+            continue
+        fi
+        mkdir -p "$ext_dir"
+        if printf '%s\n' '{"external_update_url": "https://clients2.google.com/service/update2/crx"}' > "$json_path.tmp" && mv "$json_path.tmp" "$json_path"; then
+            note_added "Chrome: $name"
+            added=1
+        else
+            rm -f "$json_path.tmp"
+            report "error" "Failed to write the Chrome extension preference for $name."
+            note_followup "Add it manually: https://chrome.google.com/webstore/detail/$id"
+        fi
+    done
+    if (( added )); then
+        note_followup "Restart Chrome, then enable the newly added extensions in chrome://extensions"
+    fi
+}
+
 # --- Homebrew --------------------------------------------------------------
 
 print_check_message "Homebrew"
@@ -1253,6 +1310,11 @@ install_app Rectangle Rectangle rectangle
 
 # Browser and communication apps
 install_app "Google Chrome" "Google Chrome" google-chrome
+
+# The extensions go in right after Chrome, so a freshly installed Chrome
+# picks them up on its first launch.
+install_chrome_extensions
+
 install_app Slack Slack slack
 install_app Discord Discord discord
 install_app Telegram Telegram telegram

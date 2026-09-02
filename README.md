@@ -16,6 +16,8 @@ For an unattended run, pass `--ide <vscode|cursor|both|skip>` and `--password-ma
 
 The script also installs the recommended IDE extensions into every IDE it finds on disk (VS Code and Cursor), independently of the `--ide` choice. Likewise, the 1Password CLI (`op`) is installed on every run, independently of the `--password-manager` choice, which covers the GUI apps only.
 
+The script force-loads a set of developer-focused Chrome extensions by writing Chrome's per-user "External Extensions" preference files. The exact list lives in the `CHROME_EXTENSIONS` array at the top of the script. The write is idempotent; extensions a fresh write adds take effect only after Chrome restarts and you enable them in chrome://extensions, which the run summary lists as a follow-up.
+
 The script also writes the nvm loader into `~/.zshrc` (`NVM_DIR` plus the `nvm.sh` and `bash_completion` sources), so the Node.js versions it installs stay available in every new terminal. It enables `yarn` through corepack (which ships with Node.js), so yarn stays under the nvm-managed Node rather than pulling in a separate Homebrew Node.
 
 The script sets up a starship prompt too: it installs starship through Homebrew along with the FiraCode Nerd Font that the starship site lists as a prerequisite, writes its opinionated `~/.config/starship.toml` when none exists (and warns, without overwriting, when an existing one has drifted from it), and adds the `eval "$(starship init zsh)"` line to `~/.zshrc`. Enabling the Nerd Font in each terminal (iTerm2, VS Code, or Cursor) is left as a documented follow-up step.
