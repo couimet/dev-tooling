@@ -116,7 +116,8 @@ Options:
   -h, --help                   Show this help message and exit
   --version                   Print the stamped version and exit
 
-When a flag is omitted, the script prompts for that choice interactively.
+When a flag is omitted, the script prompts for that choice interactively,
+up front before anything is installed.
 EOF
 }
 
@@ -974,6 +975,24 @@ install_chrome_extensions() {
     fi
 }
 
+# --- Choices (asked before anything is installed) -------------------------
+
+# The IDE and password-manager questions are asked up front so that, once
+# answered, the rest of the run can proceed unattended. The flags bypass
+# the prompts; both paths set the same install_* variables the
+# Applications section reads later.
+if [[ -n "$ARG_IDE" ]]; then
+    apply_ide_flag "$ARG_IDE"
+else
+    select_ides
+fi
+
+if [[ -n "$ARG_PASSWORD_MANAGER" ]]; then
+    apply_password_manager_flag "$ARG_PASSWORD_MANAGER"
+else
+    select_password_managers
+fi
+
 # --- Homebrew --------------------------------------------------------------
 
 print_check_message "Homebrew"
@@ -1276,13 +1295,8 @@ fi
 
 install_app iTerm iTerm2 iterm2
 
-# IDE Selection
-if [[ -n "$ARG_IDE" ]]; then
-    apply_ide_flag "$ARG_IDE"
-else
-    select_ides
-fi
-
+# The IDE installs follow the --ide flag or the up-front IDE Selection
+# answer (see the Choices section before the Homebrew section).
 if [[ "$install_vscode" = true ]]; then
     install_app "Visual Studio Code" "VS Code" visual-studio-code
 fi
@@ -1373,13 +1387,9 @@ install_cmd claude "Claude Code" --cask claude-code
 # them a given machine happens to have.
 install_cmd op "1Password CLI" --cask 1password-cli
 
-# Password Manager Selection
-if [[ -n "$ARG_PASSWORD_MANAGER" ]]; then
-    apply_password_manager_flag "$ARG_PASSWORD_MANAGER"
-else
-    select_password_managers
-fi
-
+# The password manager installs follow the --password-manager flag or the
+# up-front Password Manager Selection answer (see the Choices section
+# before the Homebrew section).
 if [[ "$install_macpass" = true ]]; then
     install_app MacPass MacPass macpass
 fi

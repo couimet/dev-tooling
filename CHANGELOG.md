@@ -8,6 +8,12 @@ This project uses [Calendar Versioning](https://calver.org/) with the format `YY
 
 Entries are organized using [Keep a Changelog](https://keepachangelog.com/) categories: **Added**, **Changed**, **Fixed**, **Removed**. Not every release uses every category; include only the ones that apply.
 
+## 2026.09.03
+
+### Changed
+
+- `setup-osx.sh` now asks the IDE and password-manager questions at the very start of the run, before anything is installed, so they are answered up front and no longer interrupt the run after installation has started; install and command steps may still prompt on their own. The `--ide` and `--password-manager` flags continue to bypass both menus entirely; only the interactive path moves the questions up front. ([issues/35](https://github.com/couimet/dev-tooling/issues/35))
+
 ## 2026.08.28
 
 ### Added

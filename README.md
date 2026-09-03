@@ -12,7 +12,7 @@ This repo contains a collection of tools/snippets that I've written (or _borrowe
 
 The run ends with a combined summary, and the full run is captured to a timestamped log, `setup-osx-YYYY-MM-DD-HH-MM-SS.log`, written into the directory where the script is invoked.
 
-For an unattended run, pass `--ide <vscode|cursor|both|skip>` and `--password-manager <macpass|1password|both|skip>`; without the flags the script prompts for those choices.
+For an unattended run, pass `--ide <vscode|cursor|both|skip>` and `--password-manager <macpass|1password|both|skip>`; without the flags the script asks both questions up front, before it installs anything. Beyond those two menus the run proceeds on its own, though an install or command step may still prompt (for example sudo or Homebrew).
 
 The script also installs the recommended IDE extensions into every IDE it finds on disk (VS Code and Cursor), independently of the `--ide` choice. Likewise, the 1Password CLI (`op`) is installed on every run, independently of the `--password-manager` choice, which covers the GUI apps only.
 
