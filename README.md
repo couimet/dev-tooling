@@ -52,6 +52,24 @@ The setup scripts are stamped with a `CalVer@SHA` version (e.g. `2026.08.19@a1b2
 
 The [stamp-version-calver workflow](./.github/workflows/stamp-version-calver.yml) drives a local composite action ([.github/actions/stamp-version-calver](./.github/actions/stamp-version-calver)) that re-stamps the scripts on every push to main, so the version you see is always the latest released one.
 
+## Manual macOS tweaks
+
+Settings applied by hand in System Settings. The setup scripts leave these to you because they are per-app and per-user.
+
+### Chrome: keyboard shortcut for `Move Tab to New Window`
+
+Give Chrome's `Move Tab to New Window` menu item a keyboard shortcut:
+
+1. Open **System Settings** from the Apple menu.
+2. Click **Keyboard** in the sidebar.
+3. Click the **Keyboard Shortcuts** button.
+4. Select **App Shortcuts** from the left list.
+5. Click the **plus (+)** button to add a new shortcut.
+6. Choose **Google Chrome** as the application, or choose **All Applications** if the same menu title should apply everywhere.
+7. Type the exact **Menu Title**, `Move Tab to New Window`; it must match the app's menu bar precisely, including capitalization and punctuation.
+8. Click into the **Keyboard Shortcut** field and press the key combination you want to assign.
+9. Click **Done**. Chrome picks the shortcut up without a restart as of Tahoe 26.6.2.
+
 ## Frequently Used Applications
 
 Once you have Homebrew installed (or better yet, run the `setup-osx.sh` script), you can install the following SQL and NoSQL tools. The script installs neither one, so pick whichever you prefer.
