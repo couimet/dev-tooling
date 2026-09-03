@@ -127,6 +127,24 @@ CHROME_EXTENSIONS=(
   [[ "$output" != *"Checking if Cursor is installed"* ]]
   [[ "$output" != *"Checking if MacPass is installed"* ]]
   [[ "$output" != *"Checking if 1Password is installed"* ]]
+  # The flags bypass the up-front menus entirely.
+  [[ "$output" != *"IDE Selection"* ]]
+  [[ "$output" != *"Password Manager Selection"* ]]
+}
+
+@test "up-front choice menus are asked before any install work" {
+  baseline_env
+  run zsh "$OSX" <<< $'4\n4\n'
+  [ "$status" -eq 0 ]
+  local out ide_before pw_before homebrew_before
+  out="$(plain "$output")"
+  ide_before="${out%%IDE Selection*}"
+  pw_before="${out%%Password Manager Selection*}"
+  homebrew_before="${out%%Checking if Homebrew is installed*}"
+  # Both menus must appear before the first install step; if a menu never
+  # shows, its prefix equals the whole output and the comparison fails.
+  (( ${#ide_before} < ${#homebrew_before} ))
+  (( ${#pw_before} < ${#homebrew_before} ))
 }
 
 @test "interactive prompts accept skip answers" {
