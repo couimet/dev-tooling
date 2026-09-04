@@ -57,6 +57,9 @@ CHROME_EXTENSIONS=(
   run zsh "$OSX" --help
   [ "$status" -eq 0 ]
   [[ "$output" == *"Usage: setup-osx.sh"* ]]
+  # The pick/skip ids render as one comma-separated list (matching the
+  # value syntax), not one id per line.
+  [[ "$output" == *"1password, argocd, aws, bats, chrome, claude"* ]]
 }
 
 @test "unknown option exits 1" {
@@ -1880,4 +1883,153 @@ EOF
   run zsh "$OSX" --version
   [ "$status" -eq 0 ]
   [[ "$output" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?@[0-9a-f]{7,40}$ ]]
+}
+
+# --- --pick / --skip --------------------------------------------------------
+
+@test "--skip without a value exits 1" {
+  run zsh "$OSX" --skip
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"--skip requires at least one id"* ]]
+}
+
+@test "--pick without a value exits 1" {
+  run zsh "$OSX" --pick
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"--pick requires at least one id"* ]]
+}
+
+@test "an unknown --skip id exits 1 and names the valid ids" {
+  run zsh "$OSX" --skip bogus
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Unknown id for --skip: bogus"* ]]
+  [[ "$output" == *"Valid ids:"* ]]
+  [[ "$output" == *"docker-compose"* ]]
+}
+
+@test "an unknown --pick id exits 1" {
+  run zsh "$OSX" --pick bogus
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Unknown id for --pick: bogus"* ]]
+  [[ "$output" == *"Valid ids:"* ]]
+}
+
+@test "--skip and --pick together exit 1" {
+  run zsh "$OSX" --skip jq --pick helm
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"--skip and --pick are mutually exclusive"* ]]
+}
+
+@test "--pick rejects --ide and --password-manager" {
+  run zsh "$OSX" --pick jq --ide vscode
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"--ide and --password-manager cannot be combined with --pick"* ]]
+  run zsh "$OSX" --pick jq --password-manager macpass
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"--ide and --password-manager cannot be combined with --pick"* ]]
+}
+
+@test "--skip jq never checks jq and lists it under Skipped" {
+  baseline_env
+  run zsh "$OSX" --ide skip --password-manager skip --skip jq
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"Checking if jq is installed"* ]]
+  [[ "$output" == *"Skipping jq (excluded via --skip)."* ]]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" == *"Skipped:"* ]]
+  # jq is recorded as skipped, so no Installed or Already-present line.
+  [[ "$clean" != *"jq jq-1.7.1"* ]]
+}
+
+@test "--skip of a missing tool still does not install it" {
+  baseline_env
+  export FORCE_COMMAND_MISSING="jq"
+  run zsh "$OSX" --ide skip --password-manager skip --skip jq
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"Checking if jq is installed"* ]]
+  ! grep -qF "brew install jq" "$STUB_CALLS"
+}
+
+@test "--skip accepts a comma-separated list of ids" {
+  baseline_env
+  run zsh "$OSX" --ide skip --password-manager skip --skip jq,kubectl
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"Checking if jq is installed"* ]]
+  [[ "$output" != *"Checking if kubectl is installed"* ]]
+}
+
+@test "--skip accepts repeated flags" {
+  baseline_env
+  run zsh "$OSX" --ide skip --password-manager skip --skip jq --skip kubectl
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"Checking if jq is installed"* ]]
+  [[ "$output" != *"Checking if kubectl is installed"* ]]
+}
+
+@test "skipping docker keeps docker-compose" {
+  baseline_env
+  run zsh "$OSX" --ide skip --password-manager skip --skip docker
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"Checking if Docker is installed"* ]]
+  [[ "$output" == *"Checking if docker-compose is installed"* ]]
+}
+
+@test "--pick docker checks only docker, still runs the foundation, and never prompts" {
+  baseline_env
+  run zsh "$OSX" --pick docker
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Checking if Docker is installed"* ]]
+  # the base toolchain is not part of the catalog and always installs.
+  [[ "$output" == *"Checking if Homebrew is installed"* ]]
+  [[ "$output" == *"Checking if Git is installed"* ]]
+  # un-picked catalog units are not checked.
+  [[ "$output" != *"Checking if jq is installed"* ]]
+  [[ "$output" != *"Checking if Slack is installed"* ]]
+  # the up-front menus are bypassed, so nothing can prompt and no IDE is
+  # resolved through them (a wrongly-run menu would fall back to VS Code).
+  [[ "$output" != *"IDE Selection"* ]]
+  [[ "$output" != *"Password Manager Selection"* ]]
+  [[ "$output" != *"Checking if VS Code is installed"* ]]
+}
+
+@test "--pick docker-compose does not touch docker" {
+  baseline_env
+  run zsh "$OSX" --pick docker-compose
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Checking if docker-compose is installed"* ]]
+  [[ "$output" != *"Checking if Docker is installed"* ]]
+}
+
+@test "units left out of a --pick run appear under Skipped, not Installed or Already present" {
+  baseline_env
+  run zsh "$OSX" --pick docker
+  [ "$status" -eq 0 ]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" == *"Skipped:"* ]]
+  # a menu-group member, an app, and a command all land under Skipped.
+  [[ "$clean" == *"- VS Code"* ]]
+  [[ "$clean" == *"- Slack"* ]]
+  [[ "$clean" == *"- jq"* ]]
+  [[ "$clean" != *"✔ VS Code"* ]]
+  [[ "$clean" != *"✔ Slack"* ]]
+  [[ "$clean" != *"jq jq-1.7.1"* ]]
+}
+
+@test "--pick vscode injects extensions only into VS Code" {
+  baseline_env
+  make_ide_stub code CODE_INSTALLED_EXTENSIONS CODE_INSTALL_FAIL
+  run zsh "$OSX" --pick vscode
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Skipping Cursor extensions (cursor was left out of this run)."* ]]
+  [ "$(grep -c "code --install-extension" "$STUB_CALLS")" -eq 6 ]
+  ! grep -q "cursor --install-extension" "$STUB_CALLS"
+}
+
+@test "--skip chrome leaves Chrome's extension injection alone too" {
+  baseline_env
+  run zsh "$OSX" --ide skip --password-manager skip --skip chrome
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Skipping Google Chrome (excluded via --skip)."* ]]
+  [[ "$output" == *"Skipping Chrome extensions (chrome was left out of this run)."* ]]
+  [[ ! -d "$HOME/Library/Application Support/Google/Chrome/External Extensions" ]]
 }
