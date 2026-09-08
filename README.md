@@ -1,8 +1,12 @@
 # dev-tooling
 
 [![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/couimet/dev-tooling?label=CodeRabbit+Reviews)](https://coderabbit.ai)
+[![CI](https://github.com/couimet/dev-tooling/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/couimet/dev-tooling/actions/workflows/ci.yml)
+![Bash](https://img.shields.io/badge/Bash-4EAA25?logo=gnubash&logoColor=white) ![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-2088FF?logo=githubactions&logoColor=white) ![Homebrew](https://img.shields.io/badge/Homebrew-FBB040?logo=homebrew&logoColor=white)
 
-This repo contains a collection of tools/snippets that I've written (or _borrowed_ 😉) over the years.
+This repo contains macOS development tooling I've written (or _borrowed_ 😉) over the years: idempotent setup scripts, plus the GitHub Actions that verify and version them.
+
+Supported platform: macOS.
 
 ## Scripts
 
