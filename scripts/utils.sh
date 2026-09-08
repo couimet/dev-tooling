@@ -107,10 +107,12 @@ start_run_log() {
 
 SUMMARY_ADDED=()
 SUMMARY_PRESENT=()
+SUMMARY_SKIPPED=()
 SUMMARY_FOLLOWUPS=()
 
 note_added()    { SUMMARY_ADDED+=("$1"); }
 note_present()  { SUMMARY_PRESENT+=("$1"); }
+note_skipped()  { SUMMARY_SKIPPED+=("$1"); }
 note_followup() { SUMMARY_FOLLOWUPS+=("$1"); }
 
 # print_run_summary
@@ -132,6 +134,17 @@ print_run_summary() {
     if (( ${#SUMMARY_PRESENT} > 0 )); then
         echo "${BOLD}Already present:${RESET}"
         for item in "${SUMMARY_PRESENT[@]}"; do
+            echo "  - $item"
+        done
+        echo
+    fi
+
+    # Units a --pick or --skip flag left out. Only present when the run
+    # actually excluded something, so setup-github-ssh.sh (which records
+    # nothing here) renders the summary exactly as before.
+    if (( ${#SUMMARY_SKIPPED} > 0 )); then
+        echo "${BOLD}Skipped:${RESET}"
+        for item in "${SUMMARY_SKIPPED[@]}"; do
             echo "  - $item"
         done
         echo

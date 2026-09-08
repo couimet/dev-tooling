@@ -8,6 +8,12 @@ This project uses [Calendar Versioning](https://calver.org/) with the format `YY
 
 Entries are organized using [Keep a Changelog](https://keepachangelog.com/) categories: **Added**, **Changed**, **Fixed**, **Removed**. Not every release uses every category; include only the ones that apply.
 
+## 2026.09.04
+
+### Added
+
+- `setup-osx.sh` now accepts `--skip <id[,id...]>` to install everything except the listed tools and apps, and `--pick <id[,id...]>` to install only the listed ones. Every installable application and CLI tool in the catalog has a stable identifier; the ids are listed (sorted) by `--help`, each flag takes one or more comma-separated ids and may be repeated, and the two flags are mutually exclusive. A `--pick` run skips the up-front IDE and password-manager menus and rejects `--ide`/`--password-manager`; a `--skip` run still asks them for the members it did not skip. Leaving an app out also leaves its extension injection alone (Chrome, VS Code, Cursor). Units left out by either flag are reported at their step and listed under a new Skipped section of the run summary; the base toolchain (Homebrew, Git, git identity and GitHub SSH, nvm/Node, yarn, and the shell setup) always installs, and brew still resolves each package's own dependencies. ([issues/14](https://github.com/couimet/dev-tooling/issues/14))
+
 ## 2026.09.03
 
 ### Changed

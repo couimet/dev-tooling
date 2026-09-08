@@ -43,6 +43,54 @@ CHROME_EXTENSIONS=(
     "nhdogjmejiglipccpnnnanhbledajbpd;Vue.js devtools"
 )
 
+# --pick/--skip selections. Each holds one id per element; --pick and
+# --skip are mutually exclusive (enforced after the option loop).
+SKIP_TOOLS=()
+PICK_TOOLS=()
+
+# Canonical list of ids a run can pick or skip, one per installable unit
+# of the Applications and dev-CLI catalog. A unit is an independent app
+# or command that install_app/install_cmd (or the bespoke GitHub CLI
+# block) installs; the foundational chain always runs and has no id.
+# An install_cmd call may omit its --id and then defaults to its command
+# name, so command units like jq and kubectl stay in sync here without
+# the id being authored a second time. The list is sorted so usage()
+# can print it verbatim. Adding a catalog unit means adding its id here.
+SKIPPABLE_IDS=(
+    1password
+    argocd
+    aws
+    bats
+    chrome
+    claude
+    cursor
+    discord
+    docker
+    docker-compose
+    gh
+    helm
+    iterm2
+    jq
+    kubectl
+    kustomize
+    macpass
+    op
+    postman
+    pre-commit
+    rectangle
+    signal
+    slack
+    telegram
+    terraform
+    terraform-docs
+    tflint
+    trivy
+    velero
+    vscode
+    whatsapp
+    yq
+)
+
 # Base URL the script refreshes its shared helpers from when it runs
 # from a raw pipe instead of a checkout; point it at a fork to test.
 HELPERS_BASE_URL="https://raw.githubusercontent.com/couimet/dev-tooling/main/scripts"
@@ -113,12 +161,23 @@ applications, and GitHub SSH access. Safe to re-run.
 Options:
   --ide <choice>               vscode | cursor | both | skip
   --password-manager <choice>  macpass | 1password | both | skip
+  --pick <id[,...]>            Install only the listed ids; exclusive
+                               with --skip, and skips the up-front menus
+  --skip <id[,...]>            Install everything except the listed ids
   -h, --help                   Show this help message and exit
-  --version                   Print the stamped version and exit
+  --version                    Print the stamped version and exit
 
-When a flag is omitted, the script prompts for that choice interactively,
-up front before anything is installed.
+A --pick or --skip value is one or more comma-separated ids (the flag may
+also be repeated); each id names one installable app or command. When a
+flag is omitted, the script prompts for the IDE and password-manager
+choices interactively, up front before anything is installed.
+
+Pickable / skippable ids:
 EOF
+    # The ids are the values --pick/--skip accept, so list them as that
+    # comma-separated value (wrapped) rather than one id per line: it
+    # mirrors the flag syntax and keeps --help from scrolling.
+    printf '%s\n' "${SKIPPABLE_IDS[@]}" | sort | paste -sd, - | sed 's/,/, /g' | fold -s -w 76 | sed 's/^/  /'
 }
 
 while [[ $# -gt 0 ]]; do
@@ -137,6 +196,24 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             ARG_PASSWORD_MANAGER="$2"
+            shift 2
+            ;;
+        --skip)
+            if (( $# < 2 )); then
+                report "error" "--skip requires at least one id (see --help for the valid ids)."
+                exit 1
+            fi
+            # shellcheck disable=SC2296  # zsh comma-split of the value into its ids
+            SKIP_TOOLS+=("${(@s:,:)2}")
+            shift 2
+            ;;
+        --pick)
+            if (( $# < 2 )); then
+                report "error" "--pick requires at least one id (see --help for the valid ids)."
+                exit 1
+            fi
+            # shellcheck disable=SC2296  # zsh comma-split of the value into its ids
+            PICK_TOOLS+=("${(@s:,:)2}")
             shift 2
             ;;
         -h|--help)
@@ -166,6 +243,52 @@ case "$ARG_PASSWORD_MANAGER" in
     *) report "error" "Unknown --password-manager choice: ${ARG_PASSWORD_MANAGER}"; exit 1 ;;
 esac
 
+# Which subset the run installs, decided by the pick/skip flags.
+# "default" runs the whole catalog plus the two menus; "skip" installs
+# everything except the listed ids; "pick" installs only the listed ids.
+RUN_MODE="default"
+
+# Validate the --skip/--pick ids against the registry up front so a typo
+# fails fast, before any log file is created, mirroring the flag-value
+# checks above. An empty id from a stray comma (e.g. --skip jq,) is
+# rejected here rather than silently accepted.
+validate_ids() {  # <label> <ids...>
+    local label="$1" id known_id known
+    shift
+    for id in "$@"; do
+        [[ -n "$id" ]] || {
+            report "error" "${label} got an empty id (check for stray commas)."
+            exit 1
+        }
+        known=false
+        for known_id in "${SKIPPABLE_IDS[@]}"; do
+            [[ "$known_id" == "$id" ]] && known=true
+        done
+        [[ "$known" == true ]] || {
+            report "error" "Unknown id for ${label}: ${id}"
+            report "info" "Valid ids: ${SKIPPABLE_IDS[*]}"
+            exit 1
+        }
+    done
+}
+
+validate_ids --skip "${SKIP_TOOLS[@]}"
+validate_ids --pick "${PICK_TOOLS[@]}"
+
+if (( ${#SKIP_TOOLS[@]} > 0 && ${#PICK_TOOLS[@]} > 0 )); then
+    report "error" "--skip and --pick are mutually exclusive; pass one or the other."
+    exit 1
+fi
+if (( ${#PICK_TOOLS[@]} > 0 )); then
+    RUN_MODE="pick"
+    if [[ -n "$ARG_IDE" || -n "$ARG_PASSWORD_MANAGER" ]]; then
+        report "error" "--ide and --password-manager cannot be combined with --pick."
+        exit 1
+    fi
+elif (( ${#SKIP_TOOLS[@]} > 0 )); then
+    RUN_MODE="skip"
+fi
+
 # Report this script's own stamped CalVer@SHA version so piped runs
 # (curl | zsh) show what they executed, and a stale script copy reports
 # its own stamp rather than a fresh one from the sourced helpers.
@@ -185,6 +308,37 @@ print_check_message() {
     local tool_name="$1"
     local display_text="${2:-is installed}"
     report "info" "Checking if ${tool_name} ${display_text}..."
+}
+
+# Decides whether a catalog id installs on this run. A --pick run
+# installs only the ids it named; every other run installs an id unless
+# --skip named it. RUN_MODE and the two lists are set while the options
+# are parsed, before any helper here is reached.
+wanted() {
+    local id="$1"
+    if [[ "$RUN_MODE" == "pick" ]]; then
+        # The ids are space-free slugs, so joining the list on IFS and
+        # probing for " id " matches whole ids only.
+        [[ " ${PICK_TOOLS[*]} " == *" $id "* ]]
+    else
+        [[ " ${SKIP_TOOLS[*]} " != *" $id "* ]]
+    fi
+}
+
+# Reports and records a catalog unit that a --pick or --skip flag left
+# out, so a run shows what it did not install: the "Skipping ..." line at
+# the step plus an entry under Skipped in the run summary. The install
+# helpers call this for their unit, and the group-member resolution calls
+# it for vscode/cursor/macpass/1password, which are gated by menus rather
+# than reaching an install helper when left out.
+skip_unit() {
+    local display="$1"
+    if [[ "$RUN_MODE" == "pick" ]]; then
+        report "warning" "Skipping ${display} (not in the --pick list)."
+    else
+        report "warning" "Skipping ${display} (excluded via --skip)."
+    fi
+    note_skipped "$display"
 }
 
 # Picks the version out of a version probe's output. Tools answering a
@@ -365,8 +519,24 @@ brew_tap() {
 # the outcome in the run summary. The app name is the /Applications
 # bundle used for the check and the version probe; the display name is
 # what the summary shows; the cask is the Homebrew package.
+# An optional leading --id names the registry id --pick/--skip address
+# and must be passed by callers (the app ids are typable slugs like
+# "vscode" and "chrome" that cannot default from a bundle name with
+# spaces). When the id is not wanted the helper reports the skip and
+# returns before any presence check.
 install_app() {
-    local app="$1" display="$2" cask="$3"
+    local id="" app="" display="" cask=""
+    if [[ "${1:-}" == "--id" && $# -ge 2 ]]; then
+        id="$2"
+        shift 2
+    fi
+    app="${1:-}"
+    display="${2:-$app}"
+    cask="${3:-$app}"
+    if ! wanted "${id:-$app}"; then
+        skip_unit "$display"
+        return 0
+    fi
     print_check_message "$display"
     if ! check_app "$app" "$display"; then
         if brew_install --cask "$cask"; then
@@ -397,8 +567,11 @@ install_app() {
 #                         version is the one worth recording
 #   --tap <tap>           tap to add before installing, and only when the
 #                         command turns out to be missing
+#   --id <id>             registry id the --pick/--skip flags address;
+#                         defaults to the command name, so command units
+#                         like jq and kubectl declare nothing
 install_cmd() {
-    local command="" display="" formula="" cask="" version_argv="" tap="" version_from_app=""
+    local command="" display="" formula="" cask="" version_argv="" tap="" version_from_app="" id=""
     if [[ $# -gt 0 && "$1" != --* ]]; then
         command="$1"
         shift
@@ -417,7 +590,7 @@ install_cmd() {
         # the loop re-matches the same option forever. Treated like the
         # unknown-option case: one tool lost, the run carries on.
         case "$1" in
-            --display|--formula|--cask|--version-cmd|--version-from-app|--tap)
+            --display|--formula|--cask|--version-cmd|--version-from-app|--tap|--id)
                 if (( $# < 2 )); then
                     report "error" "install_cmd ${command}: ${1} requires a value."
                     # a cask-only call has no formula to fall back on, so
@@ -457,6 +630,10 @@ install_cmd() {
                 tap="$2"
                 shift 2
                 ;;
+            --id)
+                id="$2"
+                shift 2
+                ;;
             *)
                 # An authoring mistake rather than a machine problem, so
                 # give up on this one tool and keep going: silently
@@ -483,6 +660,13 @@ install_cmd() {
     # asked for on top of the cask that was.
     if [[ -z "$cask" ]]; then
         formula="${formula:-$command}"
+    fi
+    # A unit left out by --pick or --skip reports its skip and returns
+    # before any presence check, so no "Checking if ..." line is printed
+    # for a tool this run deliberately does not touch.
+    if ! wanted "${id:-$command}"; then
+        skip_unit "$display"
+        return 0
     fi
 
     print_check_message "$display"
@@ -903,10 +1087,13 @@ find_extension_cli() {
 # Installs the shared IDE extension list through every IDE found on
 # disk, independent of which IDE the run was asked to install: both a
 # pre-existing IDE and one installed earlier in the same run get the
-# extensions. Each extension is reported in the run summary as present
-# (already installed, from --list-extensions), added, or a manual
-# install follow-up on failure. --install-extension is idempotent, so
-# the already-installed case is reported, not re-installed.
+# extensions. A --pick or --skip run leaves an excluded IDE's extensions
+# alone (A002): the injection is coupled to the app id, so skipping
+# vscode or cursor skips that IDE's extension injection too. Each
+# extension is reported in the run summary as present (already installed,
+# from --list-extensions), added, or a manual install follow-up on
+# failure. --install-extension is idempotent, so the already-installed
+# case is reported, not re-installed.
 install_ide_extensions() {
     local ide display cli installed id
     for ide in vscode cursor; do
@@ -914,6 +1101,10 @@ install_ide_extensions() {
             display="VS Code"
         else
             display="Cursor"
+        fi
+        if ! wanted "$ide"; then
+            report "warning" "Skipping ${display} extensions (${ide} was left out of this run)."
+            continue
         fi
         if ! cli="$(find_extension_cli "$ide")"; then
             report "info" "No ${display} installation found; skipping its extensions."
@@ -946,6 +1137,12 @@ install_ide_extensions() {
 # runs keep the default.
 install_chrome_extensions() {
     local entry id name json_path added=0
+    # The injection is coupled to the app id (A002), so a run that leaves
+    # chrome out leaves its preferences alone too.
+    if ! wanted chrome; then
+        report "warning" "Skipping Chrome extensions (chrome was left out of this run)."
+        return 0
+    fi
     if [[ ! -d "${APPS_DIR:-/Applications}/Google Chrome.app" ]]; then
         report "info" "No Chrome installation found; skipping its extensions."
         return 0
@@ -980,17 +1177,66 @@ install_chrome_extensions() {
 # The IDE and password-manager questions are asked up front so that, once
 # answered, the rest of the run can proceed unattended. The flags bypass
 # the prompts; both paths set the same install_* variables the
-# Applications section reads later.
-if [[ -n "$ARG_IDE" ]]; then
-    apply_ide_flag "$ARG_IDE"
-else
-    select_ides
-fi
+# Applications section reads later. vscode, cursor, macpass, and
+# 1password are ordinary registry ids, so a --pick run already fixes all
+# four and skips both menus (A004), while a --skip run still asks the
+# menus for the members it did not skip and then turns off the ones it
+# did. Either flag always wins over a menu or flag answer it excludes.
+install_vscode=false
+install_cursor=false
+install_macpass=false
+install_1password=false
 
-if [[ -n "$ARG_PASSWORD_MANAGER" ]]; then
-    apply_password_manager_flag "$ARG_PASSWORD_MANAGER"
+if [[ "$RUN_MODE" == "pick" ]]; then
+    if wanted vscode; then
+        install_vscode=true
+    else
+        skip_unit "VS Code"
+    fi
+    if wanted cursor; then
+        install_cursor=true
+    else
+        skip_unit "Cursor"
+    fi
+    if wanted macpass; then
+        install_macpass=true
+    else
+        skip_unit "MacPass"
+    fi
+    if wanted 1password; then
+        install_1password=true
+    else
+        skip_unit "1Password"
+    fi
 else
-    select_password_managers
+    if [[ -n "$ARG_IDE" ]]; then
+        apply_ide_flag "$ARG_IDE"
+    else
+        select_ides
+    fi
+
+    if [[ -n "$ARG_PASSWORD_MANAGER" ]]; then
+        apply_password_manager_flag "$ARG_PASSWORD_MANAGER"
+    else
+        select_password_managers
+    fi
+
+    if ! wanted vscode; then
+        install_vscode=false
+        skip_unit "VS Code"
+    fi
+    if ! wanted cursor; then
+        install_cursor=false
+        skip_unit "Cursor"
+    fi
+    if ! wanted macpass; then
+        install_macpass=false
+        skip_unit "MacPass"
+    fi
+    if ! wanted 1password; then
+        install_1password=false
+        skip_unit "1Password"
+    fi
 fi
 
 # --- Homebrew --------------------------------------------------------------
@@ -1293,20 +1539,22 @@ fi
 
 # --- Applications ----------------------------------------------------------
 
-install_app iTerm iTerm2 iterm2
+install_app --id iterm2 iTerm iTerm2 iterm2
 
 # The IDE installs follow the --ide flag or the up-front IDE Selection
 # answer (see the Choices section before the Homebrew section).
 if [[ "$install_vscode" = true ]]; then
-    install_app "Visual Studio Code" "VS Code" visual-studio-code
+    install_app --id vscode "Visual Studio Code" "VS Code" visual-studio-code
 fi
 
 if [[ "$install_cursor" = true ]]; then
-    install_app Cursor Cursor cursor
+    install_app --id cursor Cursor Cursor cursor
 fi
 
 # Extensions go to every IDE found on disk, independent of the --ide
 # choice, so both pre-existing and freshly installed IDEs are covered.
+# A --pick or --skip run that leaves an IDE out also leaves its extension
+# injection alone (see install_ide_extensions).
 install_ide_extensions
 
 # The presence check is the docker CLI but the install is the cask, and
@@ -1318,22 +1566,22 @@ install_cmd docker-compose
 
 install_cmd aws "AWS CLI" awscli
 
-install_app Postman Postman postman
+install_app --id postman Postman Postman postman
 
-install_app Rectangle Rectangle rectangle
+install_app --id rectangle Rectangle Rectangle rectangle
 
 # Browser and communication apps
-install_app "Google Chrome" "Google Chrome" google-chrome
+install_app --id chrome "Google Chrome" "Google Chrome" google-chrome
 
 # The extensions go in right after Chrome, so a freshly installed Chrome
 # picks them up on its first launch.
 install_chrome_extensions
 
-install_app Slack Slack slack
-install_app Discord Discord discord
-install_app Telegram Telegram telegram
-install_app Signal Signal signal
-install_app WhatsApp WhatsApp whatsapp
+install_app --id slack Slack Slack slack
+install_app --id discord Discord Discord discord
+install_app --id telegram Telegram Telegram telegram
+install_app --id signal Signal Signal signal
+install_app --id whatsapp WhatsApp WhatsApp whatsapp
 
 install_cmd jq
 
@@ -1365,37 +1613,43 @@ install_cmd terraform --tap hashicorp/tap --formula hashicorp/tap/terraform
 install_cmd tflint --tap terraform-linters/tap --formula terraform-linters/tap/tflint
 install_cmd terraform-docs
 
-# GitHub CLI
-print_check_message "GitHub CLI"
-if ! check_command gh; then
-    if brew_install gh; then
-        report "info" "After installation, run '${GREEN}gh auth login${RESET}' to authenticate with GitHub"
-        report "info" "The CLI will request permissions including 'Full control of public keys', which is needed for SSH key management"
-        report "info" "These permissions are safe and only affect your GitHub.com account, not your local system"
-        note_added "GitHub CLI (gh) $(cmd_version gh)"
-        GH_JUST_INSTALLED=true
-    fi
+# GitHub CLI (a bespoke block rather than an install_cmd: a fresh install
+# needs the three follow-up info lines and the GH_JUST_INSTALLED flag the
+# summary reads, which install_cmd does not provide).
+if ! wanted gh; then
+    skip_unit "GitHub CLI (gh)"
 else
-    note_present "GitHub CLI (gh) ${CHECKED_VERSION}"
+    print_check_message "GitHub CLI"
+    if ! check_command gh; then
+        if brew_install gh; then
+            report "info" "After installation, run '${GREEN}gh auth login${RESET}' to authenticate with GitHub"
+            report "info" "The CLI will request permissions including 'Full control of public keys', which is needed for SSH key management"
+            report "info" "These permissions are safe and only affect your GitHub.com account, not your local system"
+            note_added "GitHub CLI (gh) $(cmd_version gh)"
+            GH_JUST_INSTALLED=true
+        fi
+    else
+        note_present "GitHub CLI (gh) ${CHECKED_VERSION}"
+    fi
 fi
 
 install_cmd claude "Claude Code" --cask claude-code
 
-# The 1Password CLI goes on every machine, independent of the
-# --password-manager choice below: that choice is about the GUI apps,
-# and scripts reaching for "op" should not have to care which one of
-# them a given machine happens to have.
+# The 1Password CLI installs independent of the --password-manager choice
+# below (that choice is about the GUI apps, so scripts reaching for "op"
+# should not have to care which one a machine has), but it is an ordinary
+# catalog unit all the same and --pick/--skip can leave it out.
 install_cmd op "1Password CLI" --cask 1password-cli
 
 # The password manager installs follow the --password-manager flag or the
 # up-front Password Manager Selection answer (see the Choices section
 # before the Homebrew section).
 if [[ "$install_macpass" = true ]]; then
-    install_app MacPass MacPass macpass
+    install_app --id macpass MacPass MacPass macpass
 fi
 
 if [[ "$install_1password" = true ]]; then
-    install_app 1Password 1Password 1password
+    install_app --id 1password 1Password 1Password 1password
 fi
 
 # --- Shell setup -----------------------------------------------------------
