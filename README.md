@@ -28,6 +28,8 @@ The script also writes the nvm loader into `~/.zshrc` (`NVM_DIR` plus the `nvm.s
 
 The script sets up a starship prompt too: it installs starship through Homebrew along with the FiraCode Nerd Font that the starship site lists as a prerequisite, writes its opinionated `~/.config/starship.toml` when none exists (and warns, without overwriting, when an existing one has drifted from it), and adds the `eval "$(starship init zsh)"` line to `~/.zshrc`. Enabling the Nerd Font in each terminal (iTerm2, VS Code, or Cursor) is left as a documented follow-up step.
 
+The script also installs [mise](https://mise.jdx.dev/), a polyglot runtime and tool version manager, through Homebrew, and appends the `eval "$(mise activate zsh)"` line to `~/.zshrc` so its shims load in every new shell. The append is idempotent, so re-runs never duplicate the line. Node.js stays nvm-managed until a project configures a mise version.
+
 #### Quick Install
 
 If you want to run it as is -- without even downloading it -- you can do so by running the following command:

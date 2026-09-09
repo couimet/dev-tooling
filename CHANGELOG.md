@@ -8,6 +8,12 @@ This project uses [Calendar Versioning](https://calver.org/) with the format `YY
 
 Entries are organized using [Keep a Changelog](https://keepachangelog.com/) categories: **Added**, **Changed**, **Fixed**, **Removed**. Not every release uses every category; include only the ones that apply.
 
+## 2026.09.09
+
+### Added
+
+- `setup-osx.sh` now installs [mise](https://mise.jdx.dev/), a polyglot runtime and tool version manager, through Homebrew as a catalog unit (id `mise`, so it is default-on and accepts `--pick`/`--skip`). The `eval "$(mise activate zsh)"` line is appended to `~/.zshrc` so mise's shims load in every new shell; the append is idempotent, so a re-run never duplicates the line, and it is skipped when `--pick`/`--skip` leaves mise out. Node.js stays nvm-managed until a project configures a mise version. ([issues/40](https://github.com/couimet/dev-tooling/issues/40))
+
 ## 2026.09.04
 
 ### Added
