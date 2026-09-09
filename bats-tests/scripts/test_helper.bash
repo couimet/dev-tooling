@@ -57,6 +57,9 @@ setup_common() {
   make_tool bats "Bats 1.14.0"
   make_tool yarn "1.22.22"
   make_tool starship "starship 1.22.1"
+  # mise reports its version with no leading name: "2026.9.3 macos-arm64
+  # (2026-09-08)" is the shape of a real `mise --version`.
+  make_tool mise "2026.9.3 macos-arm64 (2026-09-08)"
   cat > "$TEST_BIN/node" <<'EOF'
 #!/bin/bash
 echo "${NODE_VERSION_OUTPUT:-v24.1.0}"
