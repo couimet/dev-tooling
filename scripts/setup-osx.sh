@@ -74,6 +74,7 @@ SKIPPABLE_IDS=(
     kubectl
     kustomize
     macpass
+    mise
     op
     postman
     pre-commit
@@ -1052,6 +1053,34 @@ EOF
     return 0
 }
 
+# Appends the mise activation line to ~/.zshrc so mise's shim directory
+# lands on PATH in every new shell. Idempotent: appends the block only
+# when the eval line is missing, so re-runs never duplicate it. Modeled on
+# ensure_starship_profile; must run after the oh-my-zsh step, whose
+# installer can replace ~/.zshrc.
+ensure_mise_profile() {
+    local profile="$HOME/.zshrc"
+    # shellcheck disable=SC2016  # the literal $() in the profile line is the point
+    if profile_has_active_line "$profile" 'eval "$(mise activate zsh)"'; then
+        report "success" "mise shell profile is already configured in ~/.zshrc"
+        note_present "mise shell profile (~/.zshrc)"
+        return 0
+    fi
+    if ! append_atomic "$profile" <<'EOF'
+
+# mise (added by the dev-tooling setup script)
+eval "$(mise activate zsh)"
+EOF
+    then
+        report "error" "Failed to write the mise activation line to ~/.zshrc"
+        note_followup "Add to ~/.zshrc: eval \"\$(mise activate zsh)\""
+        return 1
+    fi
+    report "info" "Added the mise activation line to ~/.zshrc"
+    note_added "mise shell profile (~/.zshrc)"
+    return 0
+}
+
 # Resolves the extension CLI binary for an IDE (vscode or cursor): the
 # command on PATH first, then the binary bundled inside the app so an
 # IDE installed from a Homebrew cask (which does not add the CLI to
@@ -1613,6 +1642,12 @@ install_cmd terraform --tap hashicorp/tap --formula hashicorp/tap/terraform
 install_cmd tflint --tap terraform-linters/tap --formula terraform-linters/tap/tflint
 install_cmd terraform-docs
 
+# mise manages language and tool versions per project. Node.js on this
+# machine stays nvm-managed (see the nvm section); mise only takes a
+# runtime over once a version is configured for it. The activation line
+# that puts its shims on PATH is written further down, after oh-my-zsh.
+install_cmd mise
+
 # GitHub CLI (a bespoke block rather than an install_cmd: a fresh install
 # needs the three follow-up info lines and the GH_JUST_INSTALLED flag the
 # summary reads, which install_cmd does not provide).
@@ -1745,6 +1780,18 @@ if [[ "$starship_present" == true ]]; then
     # the nvm profile note), so the append lands in the final ~/.zshrc.
     print_check_message "starship shell profile" "is configured in ~/.zshrc"
     ensure_starship_profile
+fi
+
+# --- mise shell integration ------------------------------------------------
+
+# mise is inert until its activation line puts the shim directory on
+# PATH, so the line is what makes a managed runtime answer as a bare
+# command in a new shell. Skipped when --pick/--skip left mise out or its
+# install failed, and written after the oh-my-zsh step (see the nvm
+# profile note) so the append lands in the final ~/.zshrc.
+if wanted mise && command -v mise &>/dev/null; then
+    print_check_message "mise shell profile" "is configured in ~/.zshrc"
+    ensure_mise_profile
 fi
 
 # --- Summary ---------------------------------------------------------------

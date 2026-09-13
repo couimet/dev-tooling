@@ -1140,6 +1140,45 @@ EOF
   [ "$(grep -cE '^[[:space:]]*eval[[:space:]]+"\$\(starship init zsh\)"' "$HOME/.zshrc")" -eq 1 ]
 }
 
+@test "adds the mise activation line to ~/.zshrc when missing" {
+  baseline_env
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" == *"✔ mise shell profile"* ]]
+  grep -qF 'eval "$(mise activate zsh)"' "$HOME/.zshrc"
+}
+
+@test "reports the mise activation line present when already configured" {
+  baseline_env
+  printf '\neval "$(mise activate zsh)"\n' >> "$HOME/.zshrc"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" != *"✔ mise shell profile"* ]]
+  [[ "$clean" == *"mise shell profile"* ]]
+  [ "$(grep -cF 'eval "$(mise activate zsh)"' "$HOME/.zshrc")" -eq 1 ]
+}
+
+@test "adds the mise activation line when only a commented one is present" {
+  baseline_env
+  printf '\n# eval "$(mise activate zsh)"\n' >> "$HOME/.zshrc"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  local clean; clean="$(plain "$output")"
+  [[ "$clean" == *"✔ mise shell profile"* ]]
+  grep -qF '# eval "$(mise activate zsh)"' "$HOME/.zshrc"
+  [ "$(grep -cE '^[[:space:]]*eval[[:space:]]+"\$\(mise activate zsh\)"' "$HOME/.zshrc")" -eq 1 ]
+}
+
+@test "writes no mise activation line when --pick leaves mise out" {
+  baseline_env
+  run zsh "$OSX" --pick jq
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Skipping mise"* ]]
+  ! grep -qF 'mise activate zsh' "$HOME/.zshrc" 2>/dev/null
+}
+
 # --- Applications ---------------------------------------------------------
 
 @test "every already installed app is reported with its version" {
@@ -1274,11 +1313,14 @@ chrome_ext_dir() {
   [[ "$output" == *"terraform Terraform v1.14.2"* ]]
   [[ "$output" == *"tflint TFLint version 0.59.0"* ]]
   [[ "$output" == *"terraform-docs terraform-docs version v0.24.0"* ]]
+  # mise prints its version with no leading name, so the display name and
+  # the probe output sit next to each other.
+  [[ "$output" == *"mise 2026.9.3 macos-arm64 (2026-09-08)"* ]]
 }
 
 @test "missing CLIs are installed and gh gets the auth follow-up" {
   baseline_env
-  export FORCE_COMMAND_MISSING="docker-compose aws jq gh claude op bats kubectl helm kustomize argocd velero yq pre-commit trivy terraform tflint terraform-docs"
+  export FORCE_COMMAND_MISSING="docker-compose aws jq gh claude op bats kubectl helm kustomize argocd velero yq pre-commit trivy terraform tflint terraform-docs mise"
   run zsh "$OSX" --ide skip --password-manager skip
   [ "$status" -eq 0 ]
   local clean; clean="$(plain "$output")"
@@ -1302,6 +1344,7 @@ chrome_ext_dir() {
   [[ "$clean" == *"✔ terraform Terraform v1.14.2"* ]]
   [[ "$clean" == *"✔ tflint TFLint version 0.59.0"* ]]
   [[ "$clean" == *"✔ terraform-docs terraform-docs version v0.24.0"* ]]
+  [[ "$clean" == *"✔ mise 2026.9.3 macos-arm64 (2026-09-08)"* ]]
   [[ "$clean" == *"✔ bats Bats 1.14.0"* ]]
   # kubectl and bats have formula names that differ from their commands.
   grep -qF "brew install kubernetes-cli" "$STUB_CALLS"
