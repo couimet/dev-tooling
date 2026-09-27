@@ -29,8 +29,8 @@ EOF
   touch "$HOME/.nvm/bash_completion"
 }
 
-APPS_DISPLAY=("iTerm2" "VS Code" "Cursor" "Postman" "Rectangle" "Google Chrome" "Slack" "Discord" "Telegram" "Signal" "WhatsApp" "MacPass" "1Password")
-APPS_PATHS=("iTerm" "Visual Studio Code" "Cursor" "Postman" "Rectangle" "Google Chrome" "Slack" "Discord" "Telegram" "Signal" "WhatsApp" "MacPass" "1Password")
+APPS_DISPLAY=("iTerm2" "VS Code" "Cursor" "Postman" "Rectangle" "Google Chrome" "Slack" "Discord" "Telegram" "Signal" "WhatsApp" "MacPass" "1Password" "KeePassXC")
+APPS_PATHS=("iTerm" "Visual Studio Code" "Cursor" "Postman" "Rectangle" "Google Chrome" "Slack" "Discord" "Telegram" "Signal" "WhatsApp" "MacPass" "1Password" "KeePassXC")
 
 # The shared IDE extension list, mirrored from scripts/setup-osx.sh.
 IDE_EXTENSIONS=(
@@ -42,14 +42,29 @@ IDE_EXTENSIONS=(
   couimet.rangelink-vscode-extension
 )
 
-# The Chrome extension list, mirrored from scripts/setup-osx.sh.
+# The Chrome extension list, mirrored from scripts/setup-osx.sh. Each
+# entry is "<unit-id>;<extension-id>;<display name>;<parent app id>".
 CHROME_EXTENSIONS=(
-  "fmkadmapgofadopljbjfkapdkoienihi;React Developer Tools"
-  "chklaanhfefbnpoihckbnefhakgolnmc;JSONVue"
-  "aeblfdkhhhdcdjpifhhbdiojplfjncoa;1Password"
-  "lmhkpmbekcpmknklioeibfkpmmfibljd;Redux DevTools"
-  "nhdogjmejiglipccpnnnanhbledajbpd;Vue.js devtools"
+  "chrome-react-devtools;fmkadmapgofadopljbjfkapdkoienihi;React Developer Tools;chrome"
+  "chrome-jsonvue;chklaanhfefbnpoihckbnefhakgolnmc;JSONVue;chrome"
+  "chrome-1password;aeblfdkhhhdcdjpifhhbdiojplfjncoa;1Password;chrome"
+  "chrome-redux-devtools;lmhkpmbekcpmknklioeibfkpmmfibljd;Redux DevTools;chrome"
+  "chrome-vue-devtools;nhdogjmejiglipccpnnnanhbledajbpd;Vue.js devtools;chrome"
+  "chrome-keepassxc-browser;oboonakemofpalcgghocfoadofidjkkk;KeePassXC-Browser;keepassxc"
 )
+
+# The Web Store id an entry writes its preference file under.
+chrome_extension_id() {
+  local entry="$1" rest="${1#*;}"
+  echo "${rest%%;*}"
+}
+
+# The display name an entry reports in the run summary.
+chrome_extension_name() {
+  local rest="${1#*;}"
+  rest="${rest#*;}"
+  echo "${rest%%;*}"
+}
 
 # --- CLI ------------------------------------------------------------------
 
@@ -59,7 +74,12 @@ CHROME_EXTENSIONS=(
   [[ "$output" == *"Usage: setup-osx.sh"* ]]
   # The pick/skip ids render as one comma-separated list (matching the
   # value syntax), not one id per line.
-  [[ "$output" == *"1password, argocd, aws, bats, chrome, claude"* ]]
+  # Six chrome-* ids now sit between chrome and claude, so the assertion
+  # spans the extension ids the array adds.
+  [[ "$output" == *"1password, argocd, aws, bats, chrome, chrome-1password"* ]]
+  [[ "$output" == *"chrome-keepassxc-browser, chrome-react-devtools"* ]]
+  [[ "$output" == *"chrome-vue-devtools, claude, cursor"* ]]
+  [[ "$output" == *"jq, keepassxc, kubectl"* ]]
 }
 
 @test "unknown option exits 1" {
@@ -112,14 +132,30 @@ CHROME_EXTENSIONS=(
   [[ "$output" != *"Checking if MacPass is installed"* ]]
 }
 
-@test "--ide both --password-manager both checks all four" {
+@test "--ide both --password-manager all checks all five" {
   baseline_env
-  run zsh "$OSX" --ide both --password-manager both
+  run zsh "$OSX" --ide both --password-manager all
   [ "$status" -eq 0 ]
   [[ "$output" == *"Checking if VS Code is installed"* ]]
   [[ "$output" == *"Checking if Cursor is installed"* ]]
   [[ "$output" == *"Checking if MacPass is installed"* ]]
   [[ "$output" == *"Checking if 1Password is installed"* ]]
+  [[ "$output" == *"Checking if KeePassXC is installed"* ]]
+}
+
+@test "--password-manager keepassxc installs only KeePassXC" {
+  baseline_env
+  run zsh "$OSX" --ide skip --password-manager keepassxc
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Checking if KeePassXC is installed"* ]]
+  [[ "$output" != *"Checking if MacPass is installed"* ]]
+  [[ "$output" != *"Checking if 1Password is installed"* ]]
+}
+
+@test "--password-manager both is no longer a valid choice" {
+  run zsh "$OSX" --password-manager both
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Unknown --password-manager choice: both"* ]]
 }
 
 @test "--ide skip --password-manager skip checks none of them" {
@@ -130,6 +166,7 @@ CHROME_EXTENSIONS=(
   [[ "$output" != *"Checking if Cursor is installed"* ]]
   [[ "$output" != *"Checking if MacPass is installed"* ]]
   [[ "$output" != *"Checking if 1Password is installed"* ]]
+  [[ "$output" != *"Checking if KeePassXC is installed"* ]]
   # The flags bypass the up-front menus entirely.
   [[ "$output" != *"IDE Selection"* ]]
   [[ "$output" != *"Password Manager Selection"* ]]
@@ -137,7 +174,7 @@ CHROME_EXTENSIONS=(
 
 @test "up-front choice menus are asked before any install work" {
   baseline_env
-  run zsh "$OSX" <<< $'4\n4\n'
+  run zsh "$OSX" <<< $'4\n5\n'
   [ "$status" -eq 0 ]
   local out ide_before pw_before homebrew_before
   out="$(plain "$output")"
@@ -152,19 +189,32 @@ CHROME_EXTENSIONS=(
 
 @test "interactive prompts accept skip answers" {
   baseline_env
-  run zsh "$OSX" <<< $'4\n4\n'
+  run zsh "$OSX" <<< $'4\n5\n'
   [ "$status" -eq 0 ]
   [[ "$output" == *"IDE Selection"* ]]
   [[ "$output" == *"Password Manager Selection"* ]]
   [[ "$output" != *"Checking if VS Code is installed"* ]]
+  [[ "$output" != *"Checking if KeePassXC is installed"* ]]
 }
 
-@test "interactive prompt falls back to VS Code on invalid input" {
+@test "the IDE menu stops the run on an invalid answer" {
   baseline_env
-  run zsh "$OSX" <<< $'9\n4\n'
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"Invalid choice. Installing VS Code by default"* ]]
-  [[ "$output" == *"Checking if VS Code is installed"* ]]
+  run zsh "$OSX" <<< $'9\n'
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Invalid choice: 9. Enter 1, 2, 3, or 4."* ]]
+  # The menu runs before any install, so nothing was checked.
+  [[ "$output" != *"Checking if VS Code is installed"* ]]
+  [[ "$output" != *"Checking if Homebrew is installed"* ]]
+}
+
+@test "the password-manager menu stops the run on an invalid answer" {
+  baseline_env
+  run zsh "$OSX" <<< $'4\n9\n'
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Invalid choice: 9. Enter 1, 2, 3, 4, or 5."* ]]
+  # The IDE answer was accepted, but nothing installed before the stop.
+  [[ "$output" != *"Checking if MacPass is installed"* ]]
+  [[ "$output" != *"Checking if Homebrew is installed"* ]]
 }
 
 @test "interactive option 1 selects VS Code and MacPass" {
@@ -187,14 +237,25 @@ CHROME_EXTENSIONS=(
   [[ "$output" != *"Checking if MacPass is installed"* ]]
 }
 
-@test "interactive option 3 selects both tools" {
+@test "interactive option 3 selects both IDEs and KeePassXC" {
   baseline_env
   run zsh "$OSX" <<< $'3\n3\n'
   [ "$status" -eq 0 ]
   [[ "$output" == *"Checking if VS Code is installed"* ]]
   [[ "$output" == *"Checking if Cursor is installed"* ]]
+  [[ "$output" == *"Checking if KeePassXC is installed"* ]]
+  [[ "$output" != *"Checking if MacPass is installed"* ]]
+  [[ "$output" != *"Checking if 1Password is installed"* ]]
+}
+
+@test "interactive option 4 installs every password manager" {
+  baseline_env
+  run zsh "$OSX" <<< $'4\n4\n'
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"Checking if VS Code is installed"* ]]
   [[ "$output" == *"Checking if MacPass is installed"* ]]
   [[ "$output" == *"Checking if 1Password is installed"* ]]
+  [[ "$output" == *"Checking if KeePassXC is installed"* ]]
 }
 
 # --- companion scripts (curl-pipe mode) -----------------------------------
@@ -1186,7 +1247,7 @@ EOF
   for app in "${APPS_PATHS[@]}"; do
     make_app "$app" 1.2.3
   done
-  run zsh "$OSX" --ide both --password-manager both
+  run zsh "$OSX" --ide both --password-manager all
   [ "$status" -eq 0 ]
   for name in "${APPS_DISPLAY[@]}"; do
     [[ "$output" == *"$name 1.2.3"* ]]
@@ -1195,7 +1256,7 @@ EOF
 
 @test "every missing app is installed" {
   baseline_env
-  run zsh "$OSX" --ide both --password-manager both
+  run zsh "$OSX" --ide both --password-manager all
   [ "$status" -eq 0 ]
   local clean; clean="$(plain "$output")"
   for name in "${APPS_DISPLAY[@]}"; do
@@ -1231,11 +1292,15 @@ chrome_ext_dir() {
 @test "installs the Chrome extension preference files when missing" {
   baseline_env
   make_app "Google Chrome"
-  run zsh "$OSX" --ide skip --password-manager skip
+  # Every extension follows its parent app, and the KeePassXC browser
+  # extension follows keepassxc, so the run has to want all managers.
+  run zsh "$OSX" --ide skip --password-manager all
   [ "$status" -eq 0 ]
   local clean; clean="$(plain "$output")"
   for entry in "${CHROME_EXTENSIONS[@]}"; do
-    local id="${entry%%;*}" name="${entry#*;}"
+    local id name
+    id="$(chrome_extension_id "$entry")"
+    name="$(chrome_extension_name "$entry")"
     [[ "$clean" == *"✔ Chrome: $name"* ]]
     [ -f "$(chrome_ext_dir)/$id.json" ]
     grep -q 'external_update_url' "$(chrome_ext_dir)/$id.json"
@@ -1248,13 +1313,13 @@ chrome_ext_dir() {
   make_app "Google Chrome"
   mkdir -p "$(chrome_ext_dir)"
   for entry in "${CHROME_EXTENSIONS[@]}"; do
-    printf '%s\n' '{"external_update_url": "https://clients2.google.com/service/update2/crx"}' > "$(chrome_ext_dir)/${entry%%;*}.json"
+    printf '%s\n' '{"external_update_url": "https://clients2.google.com/service/update2/crx"}' > "$(chrome_ext_dir)/$(chrome_extension_id "$entry").json"
   done
-  run zsh "$OSX" --ide skip --password-manager skip
+  run zsh "$OSX" --ide skip --password-manager all
   [ "$status" -eq 0 ]
   local clean; clean="$(plain "$output")"
   for entry in "${CHROME_EXTENSIONS[@]}"; do
-    [[ "$clean" == *"Chrome: ${entry#*;}"* ]]
+    [[ "$clean" == *"Chrome: $(chrome_extension_name "$entry")"* ]]
   done
   [[ "$clean" != *"✔ Chrome:"* ]]
   [[ "$output" != *"Restart Chrome"* ]]
@@ -1730,7 +1795,7 @@ EOF
 
 @test "skips IDE extensions when no IDE is on disk" {
   baseline_env
-  run zsh "$OSX" --ide both --password-manager both
+  run zsh "$OSX" --ide both --password-manager all
   [ "$status" -eq 0 ]
   [[ "$output" == *"No VS Code installation found; skipping its extensions."* ]]
   [[ "$output" == *"No Cursor installation found; skipping its extensions."* ]]
@@ -2043,6 +2108,24 @@ EOF
   [[ "$output" != *"Checking if Docker is installed"* ]]
 }
 
+@test "--pick keepassxc checks only KeePassXC" {
+  baseline_env
+  run zsh "$OSX" --pick keepassxc
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Checking if KeePassXC is installed"* ]]
+  [[ "$output" != *"Checking if MacPass is installed"* ]]
+  [[ "$output" != *"Checking if 1Password is installed"* ]]
+}
+
+@test "--skip keepassxc leaves KeePassXC out and lists it under Skipped" {
+  baseline_env
+  run zsh "$OSX" --ide skip --password-manager all --skip keepassxc
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"Checking if KeePassXC is installed"* ]]
+  [[ "$output" == *"Skipping KeePassXC (excluded via --skip)."* ]]
+  [[ "$output" == *"Checking if MacPass is installed"* ]]
+}
+
 @test "units left out of a --pick run appear under Skipped, not Installed or Already present" {
   baseline_env
   run zsh "$OSX" --pick docker
@@ -2070,9 +2153,44 @@ EOF
 
 @test "--skip chrome leaves Chrome's extension injection alone too" {
   baseline_env
-  run zsh "$OSX" --ide skip --password-manager skip --skip chrome
+  make_app "Google Chrome"
+  run zsh "$OSX" --ide skip --password-manager all --skip chrome
   [ "$status" -eq 0 ]
   [[ "$output" == *"Skipping Google Chrome (excluded via --skip)."* ]]
-  [[ "$output" == *"Skipping Chrome extensions (chrome was left out of this run)."* ]]
-  [[ ! -d "$HOME/Library/Application Support/Google/Chrome/External Extensions" ]]
+  [[ "$output" == *"Skipping Chrome: React Developer Tools (chrome was left out of this run)."* ]]
+  [[ ! -f "$(chrome_ext_dir)/$(chrome_extension_id "${CHROME_EXTENSIONS[0]}").json" ]]
+  # The KeePassXC browser extension follows keepassxc, not chrome, so it
+  # still installs in the same run.
+  [[ -f "$(chrome_ext_dir)/$(chrome_extension_id "${CHROME_EXTENSIONS[5]}").json" ]]
+}
+
+@test "--skip keepassxc leaves the KeePassXC browser extension alone" {
+  baseline_env
+  make_app "Google Chrome"
+  run zsh "$OSX" --ide skip --password-manager skip --skip keepassxc
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Skipping Chrome: KeePassXC-Browser (keepassxc was left out of this run)."* ]]
+  [[ ! -f "$(chrome_ext_dir)/$(chrome_extension_id "${CHROME_EXTENSIONS[5]}").json" ]]
+}
+
+@test "--pick keepassxc carries its browser extension" {
+  baseline_env
+  make_app "Google Chrome"
+  run zsh "$OSX" --pick keepassxc
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Checking if KeePassXC is installed"* ]]
+  [[ -f "$(chrome_ext_dir)/$(chrome_extension_id "${CHROME_EXTENSIONS[5]}").json" ]]
+  # No other extension follows, because their parent is not in the run.
+  [[ ! -f "$(chrome_ext_dir)/$(chrome_extension_id "${CHROME_EXTENSIONS[0]}").json" ]]
+}
+
+@test "--pick chrome-keepassxc-browser installs the extension alone" {
+  baseline_env
+  # No Chrome and no KeePassXC app on disk, and still the file is written.
+  run zsh "$OSX" --pick chrome-keepassxc-browser
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"Checking if KeePassXC is installed"* ]]
+  [[ "$output" != *"Checking if Google Chrome is installed"* ]]
+  [[ -f "$(chrome_ext_dir)/$(chrome_extension_id "${CHROME_EXTENSIONS[5]}").json" ]]
+  [[ ! -f "$(chrome_ext_dir)/$(chrome_extension_id "${CHROME_EXTENSIONS[0]}").json" ]]
 }
