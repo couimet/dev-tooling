@@ -8,6 +8,18 @@ This project uses [Calendar Versioning](https://calver.org/) with the format `YY
 
 Entries are organized using [Keep a Changelog](https://keepachangelog.com/) categories: **Added**, **Changed**, **Fixed**, **Removed**. Not every release uses every category; include only the ones that apply.
 
+## 2026.09.27
+
+### Added
+
+- `setup-osx.sh` now installs [KeePassXC](https://keepassxc.org/) as a third GUI password manager, alongside MacPass and 1Password. The app is a catalog unit (id `keepassxc`, so it is `--pick`/`--skip` addressable), the Password Manager Selection menu gains option 3, and `--password-manager keepassxc` selects it alone for an unattended run. The `keepassxc` cask also carries the `keepassxc-cli` binary, so there is no separate CLI unit to install. ([issues/42](https://github.com/couimet/dev-tooling/issues/42))
+- Every Chrome extension in the `CHROME_EXTENSIONS` list is now its own catalog unit, named with a `chrome-` prefix: `chrome-1password`, `chrome-jsonvue`, `chrome-keepassxc-browser`, `chrome-react-devtools`, `chrome-redux-devtools`, and `chrome-vue-devtools`. Each unit carries its parent app id, so a default or `--skip` run still writes an extension only when its parent app is part of the run. A `--pick` run writes an extension when it names either the parent app or the extension, so `--pick keepassxc` carries KeePassXC-Browser and `--pick chrome-keepassxc-browser` installs that extension alone. The list also gains KeePassXC-Browser (Web Store id `oboonakemofpalcgghocfoadofidjkkk`). ([issues/42](https://github.com/couimet/dev-tooling/issues/42))
+
+### Changed
+
+- The `--password-manager` aggregate value is now `all`, which names every supported manager; `both` is removed. The flag vocabulary is `macpass | 1password | keepassxc | all | skip`. ([issues/42](https://github.com/couimet/dev-tooling/issues/42))
+- The IDE and password-manager menus now stop the run with exit code 1 on an answer they do not recognize, in place of the previous behavior, which installed VS Code or MacPass. Both menus run before any install, so the stop leaves the machine unchanged. ([issues/42](https://github.com/couimet/dev-tooling/issues/42))
+
 ## 2026.09.09
 
 ### Added
