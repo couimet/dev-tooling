@@ -1186,7 +1186,11 @@ install_ide_extensions() {
 # extension at a time, and the injection stays coupled to the parent app
 # id the entry carries (A002). A default or --skip run therefore writes
 # an entry only when its parent app is wanted too, which keeps the rule
-# that leaving an app out leaves its extension injection alone. A --pick
+# that leaving an app out leaves its extension injection alone. A
+# default or --skip run also skips the 1Password and KeePassXC-Browser
+# entries when the password-manager answer leaves that manager out; the
+# parent check cannot see that answer because it reads only the --skip
+# list. A --pick
 # run writes an entry when it names either the parent app or the entry
 # itself, so --pick keepassxc carries the KeePassXC browser extension
 # and --pick chrome-keepassxc-browser installs that extension alone.
@@ -1196,6 +1200,7 @@ install_ide_extensions() {
 # file because that file is what a later Chrome install reads.
 install_chrome_extensions() {
     local entry unit_id rest id parent name json_path added=0
+    local manager_id manager_ok
     local ext_dir="$HOME/Library/Application Support/Google/Chrome/External Extensions"
     if [[ "$RUN_MODE" != "pick" && ! -d "${APPS_DIR:-/Applications}/Google Chrome.app" ]]; then
         report "info" "No Chrome installation found; skipping its extensions."
@@ -1219,6 +1224,20 @@ install_chrome_extensions() {
         else
             if ! wanted "$parent"; then
                 report "warning" "Skipping Chrome: ${name} (${parent} was left out of this run)."
+                continue
+            fi
+            # The password-manager answer sets the install_* variables
+            # without adding an id to SKIP_TOOLS, so the parent check
+            # alone still passes for a manager the run left out. The
+            # 1Password entry follows chrome, so its manager needs a
+            # check keyed on the unit id too.
+            case "$unit_id" in
+                chrome-1password) manager_id=1password; manager_ok=$install_1password ;;
+                chrome-keepassxc-browser) manager_id=keepassxc; manager_ok=$install_keepassxc ;;
+                *) manager_id=""; manager_ok=true ;;
+            esac
+            if [[ "$manager_ok" != true ]]; then
+                report "warning" "Skipping Chrome: ${name} (${manager_id} was left out of this run)."
                 continue
             fi
             if ! wanted "$unit_id"; then

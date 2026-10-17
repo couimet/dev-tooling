@@ -2194,3 +2194,34 @@ EOF
   [[ -f "$(chrome_ext_dir)/$(chrome_extension_id "${CHROME_EXTENSIONS[5]}").json" ]]
   [[ ! -f "$(chrome_ext_dir)/$(chrome_extension_id "${CHROME_EXTENSIONS[0]}").json" ]]
 }
+
+@test "--password-manager skip writes no password-manager Chrome extension" {
+  baseline_env
+  make_app "Google Chrome"
+  run zsh "$OSX" --ide skip --password-manager skip
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Skipping Chrome: 1Password (1password was left out of this run)."* ]]
+  [[ "$output" == *"Skipping Chrome: KeePassXC-Browser (keepassxc was left out of this run)."* ]]
+  [[ ! -f "$(chrome_ext_dir)/$(chrome_extension_id "${CHROME_EXTENSIONS[2]}").json" ]]
+  [[ ! -f "$(chrome_ext_dir)/$(chrome_extension_id "${CHROME_EXTENSIONS[5]}").json" ]]
+  # The extensions with no password-manager owner still install.
+  [[ -f "$(chrome_ext_dir)/$(chrome_extension_id "${CHROME_EXTENSIONS[0]}").json" ]]
+}
+
+@test "--password-manager keepassxc writes only its browser extension" {
+  baseline_env
+  make_app "Google Chrome"
+  run zsh "$OSX" --ide skip --password-manager keepassxc
+  [ "$status" -eq 0 ]
+  [[ -f "$(chrome_ext_dir)/$(chrome_extension_id "${CHROME_EXTENSIONS[5]}").json" ]]
+  [[ ! -f "$(chrome_ext_dir)/$(chrome_extension_id "${CHROME_EXTENSIONS[2]}").json" ]]
+}
+
+@test "--password-manager 1password writes only its browser extension" {
+  baseline_env
+  make_app "Google Chrome"
+  run zsh "$OSX" --ide skip --password-manager 1password
+  [ "$status" -eq 0 ]
+  [[ -f "$(chrome_ext_dir)/$(chrome_extension_id "${CHROME_EXTENSIONS[2]}").json" ]]
+  [[ ! -f "$(chrome_ext_dir)/$(chrome_extension_id "${CHROME_EXTENSIONS[5]}").json" ]]
+}
