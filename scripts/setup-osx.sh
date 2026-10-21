@@ -30,17 +30,22 @@ IDE_EXTENSIONS=(
 
 # Chrome extensions force-loaded for the current user by writing the
 # per-user "External Extensions" JSON preference files Chrome reads on
-# launch. Each entry is "<extension-id>;<display name>": the id is the
-# 32-hex-char Web Store identifier, the display name is what the run
-# summary shows. Newly written files only take effect once Chrome
-# restarts and the extension is enabled in chrome://extensions, so a
-# fresh write records both actions as a follow-up.
+# launch. Each entry is
+# "<unit-id>;<extension-id>;<display name>;<parent app id>": the unit id
+# is what --pick/--skip address the extension by, the extension id is
+# the 32-hex-char Web Store identifier, the display name is what the run
+# summary shows, and the parent app id is the catalog unit the extension
+# follows. Any entry may be named on its own with --pick. Newly written
+# files only take effect once Chrome restarts and the extension is
+# enabled in chrome://extensions, so a fresh write records both actions
+# as a follow-up.
 CHROME_EXTENSIONS=(
-    "fmkadmapgofadopljbjfkapdkoienihi;React Developer Tools"
-    "chklaanhfefbnpoihckbnefhakgolnmc;JSONVue"
-    "aeblfdkhhhdcdjpifhhbdiojplfjncoa;1Password"
-    "lmhkpmbekcpmknklioeibfkpmmfibljd;Redux DevTools"
-    "nhdogjmejiglipccpnnnanhbledajbpd;Vue.js devtools"
+    "chrome-react-devtools;fmkadmapgofadopljbjfkapdkoienihi;React Developer Tools;chrome"
+    "chrome-jsonvue;chklaanhfefbnpoihckbnefhakgolnmc;JSONVue;chrome"
+    "chrome-1password;aeblfdkhhhdcdjpifhhbdiojplfjncoa;1Password;chrome"
+    "chrome-redux-devtools;lmhkpmbekcpmknklioeibfkpmmfibljd;Redux DevTools;chrome"
+    "chrome-vue-devtools;nhdogjmejiglipccpnnnanhbledajbpd;Vue.js devtools;chrome"
+    "chrome-keepassxc-browser;oboonakemofpalcgghocfoadofidjkkk;KeePassXC-Browser;keepassxc"
 )
 
 # --pick/--skip selections. Each holds one id per element; --pick and
@@ -49,19 +54,27 @@ SKIP_TOOLS=()
 PICK_TOOLS=()
 
 # Canonical list of ids a run can pick or skip, one per installable unit
-# of the Applications and dev-CLI catalog. A unit is an independent app
-# or command that install_app/install_cmd (or the bespoke GitHub CLI
-# block) installs; the foundational chain always runs and has no id.
+# of the Applications and dev-CLI catalog. A unit is an independent app,
+# command, or Chrome extension that install_app/install_cmd (or the
+# bespoke GitHub CLI block, or the Chrome extension loop) installs; the
+# foundational chain always runs and has no id.
 # An install_cmd call may omit its --id and then defaults to its command
 # name, so command units like jq and kubectl stay in sync here without
 # the id being authored a second time. The list is sorted so usage()
 # can print it verbatim. Adding a catalog unit means adding its id here.
+# The chrome-* ids come from the CHROME_EXTENSIONS entries above.
 SKIPPABLE_IDS=(
     1password
     argocd
     aws
     bats
     chrome
+    chrome-1password
+    chrome-jsonvue
+    chrome-keepassxc-browser
+    chrome-react-devtools
+    chrome-redux-devtools
+    chrome-vue-devtools
     claude
     cursor
     discord
@@ -71,6 +84,7 @@ SKIPPABLE_IDS=(
     helm
     iterm2
     jq
+    keepassxc
     kubectl
     kustomize
     macpass
@@ -161,7 +175,7 @@ applications, and GitHub SSH access. Safe to re-run.
 
 Options:
   --ide <choice>               vscode | cursor | both | skip
-  --password-manager <choice>  macpass | 1password | both | skip
+  --password-manager <choice>  macpass | 1password | keepassxc | all | skip
   --pick <id[,...]>            Install only the listed ids; exclusive
                                with --skip, and skips the up-front menus
   --skip <id[,...]>            Install everything except the listed ids
@@ -169,9 +183,10 @@ Options:
   --version                    Print the stamped version and exit
 
 A --pick or --skip value is one or more comma-separated ids (the flag may
-also be repeated); each id names one installable app or command. When a
-flag is omitted, the script prompts for the IDE and password-manager
-choices interactively, up front before anything is installed.
+also be repeated); each id names one installable app, command, or Chrome
+extension. When a flag is omitted, the script prompts for the IDE and
+password-manager choices interactively, up front before anything is
+installed. Both menus stop the run on an answer they do not recognize.
 
 Pickable / skippable ids:
 EOF
@@ -193,7 +208,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         --password-manager)
             if (( $# < 2 )); then
-                report "error" "--password-manager requires a choice (macpass, 1password, both, or skip)."
+                report "error" "--password-manager requires a choice (macpass, 1password, keepassxc, all, or skip)."
                 exit 1
             fi
             ARG_PASSWORD_MANAGER="$2"
@@ -240,7 +255,7 @@ case "$ARG_IDE" in
     *) report "error" "Unknown --ide choice: ${ARG_IDE}"; exit 1 ;;
 esac
 case "$ARG_PASSWORD_MANAGER" in
-    ""|macpass|1password|both|skip) ;;
+    ""|macpass|1password|keepassxc|all|skip) ;;
     *) report "error" "Unknown --password-manager choice: ${ARG_PASSWORD_MANAGER}"; exit 1 ;;
 esac
 
@@ -719,8 +734,9 @@ omz_version() {
     fi
 }
 
-# Prompt for which IDE(s) to install. An invalid choice falls back to
-# VS Code, matching the historical behavior.
+# Prompt for which IDE(s) to install. An answer the menu does not
+# recognize stops the run, so nothing installs on a mistyped answer.
+# Both menus run before any install, so the abort changes nothing on disk.
 select_ides() {
     report "info" "IDE Selection"
     echo "Which IDE(s) would you like to install?"
@@ -737,29 +753,31 @@ select_ides() {
         2) install_vscode=false; install_cursor=true ;;
         3) install_vscode=true; install_cursor=true ;;
         4) install_vscode=false; install_cursor=false ;;
-        *) report "warning" "Invalid choice. Installing VS Code by default."; install_vscode=true; install_cursor=false ;;
+        *) report "error" "Invalid choice: ${ide_choice}. Enter 1, 2, 3, or 4."; exit 1 ;;
     esac
 }
 
-# Prompt for which password manager(s) to install. An invalid choice
-# falls back to MacPass, matching the historical behavior.
+# Prompt for which password manager(s) to install. An answer the menu
+# does not recognize stops the run, the same way select_ides does.
 select_password_managers() {
     report "info" "Password Manager Selection"
     echo "Which password manager(s) would you like to install?"
     echo "1) MacPass"
     echo "2) 1Password"
-    echo "3) Both"
-    echo "4) Skip password manager installation"
-    echo -n "Enter your choice (1-4): "
+    echo "3) KeePassXC"
+    echo "4) All"
+    echo "5) Skip password manager installation"
+    echo -n "Enter your choice (1-5): "
 
     read -r pm_choice
 
     case $pm_choice in
-        1) install_macpass=true; install_1password=false ;;
-        2) install_macpass=false; install_1password=true ;;
-        3) install_macpass=true; install_1password=true ;;
-        4) install_macpass=false; install_1password=false ;;
-        *) report "warning" "Invalid choice. Installing MacPass by default."; install_macpass=true; install_1password=false ;;
+        1) install_macpass=true; install_1password=false; install_keepassxc=false ;;
+        2) install_macpass=false; install_1password=true; install_keepassxc=false ;;
+        3) install_macpass=false; install_1password=false; install_keepassxc=true ;;
+        4) install_macpass=true; install_1password=true; install_keepassxc=true ;;
+        5) install_macpass=false; install_1password=false; install_keepassxc=false ;;
+        *) report "error" "Invalid choice: ${pm_choice}. Enter 1, 2, 3, 4, or 5."; exit 1 ;;
     esac
 }
 
@@ -774,13 +792,16 @@ apply_ide_flag() {
     esac
 }
 
-# Applies a --password-manager flag value the same way.
+# Applies a --password-manager flag value the same way. "all" names every
+# manager, so it replaces the old "both", which only made sense while the
+# choice held two.
 apply_password_manager_flag() {
     case "$1" in
-        macpass)   install_macpass=true; install_1password=false ;;
-        1password) install_macpass=false; install_1password=true ;;
-        both)      install_macpass=true; install_1password=true ;;
-        skip)      install_macpass=false; install_1password=false ;;
+        macpass)   install_macpass=true; install_1password=false; install_keepassxc=false ;;
+        1password) install_macpass=false; install_1password=true; install_keepassxc=false ;;
+        keepassxc) install_macpass=false; install_1password=false; install_keepassxc=true ;;
+        all)       install_macpass=true; install_1password=true; install_keepassxc=true ;;
+        skip)      install_macpass=false; install_1password=false; install_keepassxc=false ;;
     esac
 }
 
@@ -1160,27 +1181,70 @@ install_ide_extensions() {
 # reported as present rather than rewritten. Chrome picks the files up
 # on launch, so a newly written file only takes effect once Chrome
 # restarts and the extension is enabled in chrome://extensions; a fresh
-# write records both as a follow-up. The step is skipped when Chrome is
-# not on disk; APPS_DIR
-# lets tests point the check at a fake Applications directory, real
-# runs keep the default.
+# write records both as a follow-up.
+# Every entry is its own catalog unit, so --pick/--skip name one
+# extension at a time, and the injection stays coupled to the parent app
+# id the entry carries (A002). A default or --skip run therefore writes
+# an entry only when its parent app is wanted too, which keeps the rule
+# that leaving an app out leaves its extension injection alone. A
+# default or --skip run also skips the 1Password and KeePassXC-Browser
+# entries when the password-manager answer leaves that manager out; the
+# parent check cannot see that answer because it reads only the --skip
+# list. A --pick
+# run writes an entry when it names either the parent app or the entry
+# itself, so --pick keepassxc carries the KeePassXC browser extension
+# and --pick chrome-keepassxc-browser installs that extension alone.
+# The Chrome presence check applies to a default or --skip run only:
+# APPS_DIR lets tests point it at a fake Applications directory, real
+# runs keep the default, and an explicit --pick writes the preference
+# file because that file is what a later Chrome install reads.
 install_chrome_extensions() {
-    local entry id name json_path added=0
-    # The injection is coupled to the app id (A002), so a run that leaves
-    # chrome out leaves its preferences alone too.
-    if ! wanted chrome; then
-        report "warning" "Skipping Chrome extensions (chrome was left out of this run)."
-        return 0
-    fi
-    if [[ ! -d "${APPS_DIR:-/Applications}/Google Chrome.app" ]]; then
+    local entry unit_id rest id parent name json_path added=0
+    local manager_id manager_ok
+    local ext_dir="$HOME/Library/Application Support/Google/Chrome/External Extensions"
+    if [[ "$RUN_MODE" != "pick" && ! -d "${APPS_DIR:-/Applications}/Google Chrome.app" ]]; then
         report "info" "No Chrome installation found; skipping its extensions."
         return 0
     fi
     print_check_message "Chrome extensions"
-    local ext_dir="$HOME/Library/Application Support/Google/Chrome/External Extensions"
     for entry in "${CHROME_EXTENSIONS[@]}"; do
-        id="${entry%%;*}"
-        name="${entry#*;}"
+        unit_id="${entry%%;*}"
+        rest="${entry#*;}"
+        id="${rest%%;*}"
+        rest="${rest#*;}"
+        name="${rest%%;*}"
+        parent="${rest#*;}"
+        if [[ "$RUN_MODE" == "pick" ]]; then
+            # Naming the parent app carries its extensions; naming the
+            # unit alone carries just that one.
+            if ! wanted "$parent" && ! wanted "$unit_id"; then
+                skip_unit "Chrome: ${name}"
+                continue
+            fi
+        else
+            if ! wanted "$parent"; then
+                report "warning" "Skipping Chrome: ${name} (${parent} was left out of this run)."
+                continue
+            fi
+            # The password-manager answer sets the install_* variables
+            # without adding an id to SKIP_TOOLS, so the parent check
+            # alone still passes for a manager the run left out. The
+            # 1Password entry follows chrome, so its manager needs a
+            # check keyed on the unit id too.
+            case "$unit_id" in
+                chrome-1password) manager_id=1password; manager_ok=$install_1password ;;
+                chrome-keepassxc-browser) manager_id=keepassxc; manager_ok=$install_keepassxc ;;
+                *) manager_id=""; manager_ok=true ;;
+            esac
+            if [[ "$manager_ok" != true ]]; then
+                report "warning" "Skipping Chrome: ${name} (${manager_id} was left out of this run)."
+                continue
+            fi
+            if ! wanted "$unit_id"; then
+                skip_unit "Chrome: ${name}"
+                continue
+            fi
+        fi
         json_path="$ext_dir/$id.json"
         if [[ -f "$json_path" ]]; then
             note_present "Chrome: $name"
@@ -1206,15 +1270,16 @@ install_chrome_extensions() {
 # The IDE and password-manager questions are asked up front so that, once
 # answered, the rest of the run can proceed unattended. The flags bypass
 # the prompts; both paths set the same install_* variables the
-# Applications section reads later. vscode, cursor, macpass, and
-# 1password are ordinary registry ids, so a --pick run already fixes all
-# four and skips both menus (A004), while a --skip run still asks the
+# Applications section reads later. vscode, cursor, macpass, 1password,
+# and keepassxc are ordinary registry ids, so a --pick run already fixes
+# all five and skips both menus (A004), while a --skip run still asks the
 # menus for the members it did not skip and then turns off the ones it
 # did. Either flag always wins over a menu or flag answer it excludes.
 install_vscode=false
 install_cursor=false
 install_macpass=false
 install_1password=false
+install_keepassxc=false
 
 if [[ "$RUN_MODE" == "pick" ]]; then
     if wanted vscode; then
@@ -1236,6 +1301,11 @@ if [[ "$RUN_MODE" == "pick" ]]; then
         install_1password=true
     else
         skip_unit "1Password"
+    fi
+    if wanted keepassxc; then
+        install_keepassxc=true
+    else
+        skip_unit "KeePassXC"
     fi
 else
     if [[ -n "$ARG_IDE" ]]; then
@@ -1265,6 +1335,10 @@ else
     if ! wanted 1password; then
         install_1password=false
         skip_unit "1Password"
+    fi
+    if ! wanted keepassxc; then
+        install_keepassxc=false
+        skip_unit "KeePassXC"
     fi
 fi
 
@@ -1685,6 +1759,10 @@ fi
 
 if [[ "$install_1password" = true ]]; then
     install_app --id 1password 1Password 1Password 1password
+fi
+
+if [[ "$install_keepassxc" = true ]]; then
+    install_app --id keepassxc KeePassXC KeePassXC keepassxc
 fi
 
 # --- Shell setup -----------------------------------------------------------
