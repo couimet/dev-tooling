@@ -9,7 +9,7 @@
 # Uses a distinct name so sourcing this file cannot clobber the entry
 # scripts' own VERSION assignments.
 # shellcheck disable=SC2034  # stamped metadata, inspected manually; not read at runtime
-VERSION_UTILS="2026.09.09@b150929"
+VERSION_UTILS="2026.09.27@5404b2e"
 
 # --- Colors and text styles --------------------------------------------
 
